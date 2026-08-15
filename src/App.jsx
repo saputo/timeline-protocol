@@ -1418,7 +1418,7 @@ export default function App() {
 
                     <div className="p-4 md:p-6 bg-[#020617] shrink-0 max-h-[45vh] overflow-y-auto custom-scrollbar z-[500] shadow-[0_-10px_30px_rgba(0,0,0,0.8)] relative">
                         <div className="max-w-4xl mx-auto flex flex-col">
-                            {!gameState.selectedPath && (
+                            {!gameState.selectedPath && bootPhase >= 3 && (
                                 <div className="fade-in text-center relative">
                                     <h3 className="text-lg font-black uppercase tracking-widest text-cyan-400 mb-2">SELECT OPERATIVE PROFILE</h3>
                                     <p className="text-xs text-cyan-700 font-mono mb-1">Choose your assignment. This will lock your trajectory.</p>
