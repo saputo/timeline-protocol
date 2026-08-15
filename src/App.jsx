@@ -1657,6 +1657,15 @@ export default function App() {
                                 <button onClick={() => { setGameState(prev => ({ ...prev, selectedPath: 'GUARDIAN' })); setBootPhase(3); setShowSandbox(false); }} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">force selectedPath (no form POST)</button>
                                 <button onClick={() => processScan('TAG-NIGHTMARE-OVERRIDE')} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">force-unlock current node</button>
                                 <button onClick={() => {
+                                    const unlockedNodes = getAllItems().map(item => {
+                                        const mainType = MAIN_NODE_TYPES.find(t => STATIC_MAIN_NODES[t].id === item.id);
+                                        return { id: item.id, type: mainType || 'MANUAL', lat: item.lat, lng: item.lng };
+                                    });
+                                    setGameState(prev => ({ ...prev, unlockedNodes, unlockedArtists: TEMPORAL_ARTISTS.map(a => a.id), gameComplete: true }));
+                                    playGlitchSound();
+                                    if (gameState.faction === 'HACKER') setHackerEndPhase(1);
+                                }} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">unlock ALL case board items ({getAllItems().length + TEMPORAL_ARTISTS.length} total, no form POST)</button>
+                                <button onClick={() => {
                                     const unlockedNodes = MAIN_NODE_TYPES.map(t => {
                                         const art = getArtifactForType(t);
                                         return art ? { id: art.id, type: t, lat: art.lat, lng: art.lng } : null;
@@ -1664,7 +1673,7 @@ export default function App() {
                                     setGameState(prev => ({ ...prev, unlockedNodes, gameComplete: true }));
                                     playGlitchSound();
                                     if (gameState.faction === 'HACKER') setHackerEndPhase(1);
-                                }} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">unlock all 3 (no form POST)</button>
+                                }} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">unlock just the 3 main nodes (no form POST)</button>
                                 <div className="grid grid-cols-2 gap-1">
                                     <button onClick={() => setGameState(prev => ({ ...prev, faction: 'HACKER' }))} className={`px-1 py-1.5 border rounded ${gameState.faction === 'HACKER' ? 'bg-[#00ff41]/30 border-[#00ff41] text-[#00ff41]' : 'bg-gray-900 border-gray-700'}`}>faction: HACKER</button>
                                     <button onClick={() => setGameState(prev => ({ ...prev, faction: 'CRI' }))} className={`px-1 py-1.5 border rounded ${gameState.faction === 'CRI' ? 'bg-cyan-500/30 border-cyan-400 text-cyan-300' : 'bg-gray-900 border-gray-700'}`}>faction: CRI</button>
