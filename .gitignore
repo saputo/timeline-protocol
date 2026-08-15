@@ -13,6 +13,9 @@ dist-ssr
 dist.zip
 *.local
 
+# Claude Code project config (dev tooling, not part of the game)
+.claude/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

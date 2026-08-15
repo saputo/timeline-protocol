@@ -80,46 +80,21 @@ content from Firestore instead (`src/firebase.js` has the project config;
 
 ## QR / RFID codes
 
-Every code becomes either a raw manual-entry string or a URL:
-`https://timelineprotocol.com/?scan=CODE`
+The actual sticker/tag codes are kept out of this file on purpose — this
+repo is public, and publishing the codes here would let anyone unlock the
+game from their couch instead of walking Belltown. The code list lives
+somewhere off-repo; ask whoever's running the show for it.
 
-| Code | What it unlocks |
-|---|---|
-| `DSHS-1980` | GUARDIAN node — DSHS office window, 2106 2nd Ave |
-| `BOAZ-SMASH` | DETECTIVE node — Shorty's Coney Island, 2316 2nd Ave |
-| `TAG-SIGNAL` | VIGILANTE node — Jupiter Bar, 2126 2nd Ave |
-| `FLIGHT-71` | Intercepted Audio: The Professor |
-| `TG-001` | CRI Asset Log: The Synchronization Bridge |
-| `REACTOR-61` | AEC Order 66-9: Containment by Concrete |
-| `HUM-440` | Research Draft: Harmonic Excitation of Cobalt-60 |
-| `FILTER-PROTOCOL` | Physics Division Memo: The Frequency of Clarity |
-| `SUDO-CLEARANCE` | CRI Personnel File: Redacted |
-| `CRI-PSA-099` | CRI Public Safety Advisory |
-| `DOCUMENT-J` | FBI/CRI Joint Case File (1971) — the sticker that gets physically moved onto the DSHS window once found |
-| `SUBJECT-89` | Internal Memo: Subject 89 |
-| `TAG-ARTIST-IMP` | Caity Johnson (The Inspired Imp) dossier |
-| `TAG-ARTIST-AEGIS` | Jacoby Hinton (The Vanguard) dossier |
-
-There are also team-only recovery codes for live troubleshooting (force an
-unlock, jump straight to the ending). They're intentionally not listed
-here — see `TESTING.md` if you need them, and never print them on a public
-tag or QR code.
+Every code becomes either a raw manual-entry string (typed into the
+MANUAL SCAN tab) or a URL: `https://timelineprotocol.com/?scan=CODE`
 
 ## Dev harness
 
 Add `?debug=1` to any URL to open a dev panel (bottom-right, never visible
-to players without the flag):
-
-- Live game state (boot phase, path, faction, unlock counts)
-- Jump to any screen (title sequence, menu, field manual, straight into
-  the game)
-- Force a faction, force-unlock the current node, unlock all 14 items at
-  once, jump to the ending, or fire the bonus reveal on demand
-- Purge saved progress and reload as a first-time visitor
-
-Everything in the panel writes to local React/localStorage state only — it
-never hits the real signup endpoint, so testing never spams the real
-inbox.
+to players without the flag). It's for testing the game's flow without
+walking the whole map every time — live state, screen jumps, and shortcuts
+that write to local state only (never the real signup endpoint). Details
+intentionally not spelled out here for the same reason as the codes above.
 
 ## External services
 
