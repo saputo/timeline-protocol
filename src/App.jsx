@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { db, appId } from './firebase'; 
 import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { Icons } from './Icons'; 
+import { CRILogo } from './CRILogo'; 
 
 // ==========================================
 // AUDIO ENGINE: DIGITAL SCREECH
@@ -80,27 +81,195 @@ const stripHtmlToLines = (html) => {
 // ==========================================
 // CITY-WIDE CONFIGURATION 
 // ==========================================
-// Default center is now downtown Seattle
-const SEATTLE_CENTER = { lat: 47.6062, lng: -122.3321 };
+const SEATTLE_CENTER = { lat: 47.6153, lng: -122.3204 };
+
+// Sandbox Seattle — 1417 10th Ave, Capitol Hill. All tonight's physical props are here.
+const VENUE = { lat: 47.613592, lng: -122.319640, label: 'THE SANDBOX' };
+
+// Belltown neighborhood centroid — a hint pin for Saturday's leg, not the exact
+// DSHS door (that location isn't locked in yet). Tighten to the real address
+// once it's confirmed.
+const BELLTOWN = { lat: 47.613231, lng: -122.345361, label: 'BELLTOWN — SIGNAL SOURCE' };
+
+// ==========================================
+// CLOSED-LOOP DEMO MODE
+// T3S/Firestore currently has stale content from a previous show. While that's
+// down/wrong, this flag makes the whole game run on the hardcoded content below
+// instead — MONEY/SKETCH/EXIT clues, lore and unlocks all come from
+// STATIC_MAIN_NODES / STATIC_LORE_NODES, zero network dependency.
+// To bring T3S back once it's repopulated correctly: set this to false.
+// ==========================================
+const CLOSED_LOOP_DEMO = true;
+const STRIPE_LINK = "https://www.zeffy.com/en-US/donation-form/the-catalyst-accelerating-the-reaction"; 
 
 const SEQUENCES = {
-    'KEY': ['KEY', 'LOCK', 'KNOB', 'JELLYFISH'],
-    'LOCK': ['LOCK', 'KNOB', 'KEY', 'JELLYFISH'],
-    'KNOB': ['KNOB', 'KEY', 'LOCK', 'JELLYFISH']
+    'MONEY': ['MONEY', 'SKETCH', 'EXIT'],
+    'SKETCH': ['SKETCH', 'MONEY', 'EXIT'],
+    'EXIT': ['EXIT', 'MONEY', 'SKETCH']
+};
+
+// ==========================================
+// TEMPORAL ARTISTS
+// Scan codes below are wired into processScan() — print these on the
+// artists' RFID tags / QR codes to open their dossier in-game.
+// ==========================================
+const TEMPORAL_ARTISTS = [
+    {
+        id: 'TA-01',
+        scanCode: 'TAG-ARTIST-IMP',
+        name: 'Caity Johnson',
+        alias: 'THE INSPIRED IMP',
+        role: 'The Curator // Inside Eyes',
+        affiliation: 'CRI EVENT PROMOTER — STATUS: COMPLIANT',
+        affiliationWarn: 'TAG DOUBLE AGENT — UNVERIFIED',
+        tool: 'The Symbiotic Squeegee',
+        color: '#f97316',
+        instagram: 'https://instagram.com/inspirted.imp',
+        instagramHandle: '@inspirted.imp',
+        website: null,
+        bio: [
+            "Painter, band promoter, curator. Operates as The Inspired Imp — the connective tissue of the Seattle art scene. Builds the rooms where art, music and people meet.",
+            "The Institute recruited her to fill those rooms. High-volume crowds make an efficient bio-acoustic centrifuge, and no one in this city can pull a crowd like she can. CRI files her as a compliant marketing asset.",
+            "CRI underestimated her empathy. She recognised what the Institute was doing to the people she brought through the door, and has been quietly working against it ever since — using her clearance to identify at-risk artists and funnel them toward the Temporal Artists Guild."
+        ],
+        toolLore: [
+            "Her squeegee blade is cut with neutralised Black Mud — chronal slag salvaged from the Pioneer Square underground — suspended in Boaz static.",
+            "Every flyer she screen-prints carries a microscopic analog frequency pressed into the fibres of the paper. Stapled to a pole or taped to a venue wall, each print becomes a low-level signal jammer.",
+            "A room papered in her posters reads as a dead zone. Digital scanners cannot resolve what happens inside it. She is not decorating the venue. She is shielding it."
+        ]
+    },
+    {
+        id: 'TA-02',
+        scanCode: 'TAG-ARTIST-AEGIS',
+        name: 'Jacoby Hinton',
+        alias: 'THE VANGUARD',
+        role: 'TAG Muscle // Recruiter',
+        affiliation: 'TEMPORAL ARTISTS GUILD — HOSTILE TO CRI',
+        affiliationWarn: null,
+        tool: 'The Aegis Drop-Cloth',
+        color: '#06b6d4',
+        instagram: 'https://instagram.com/jacobyhintonart',
+        instagramHandle: '@jacobyhintonart',
+        website: 'https://jacobyhinton.art',
+        bio: [
+            "Formally trained fine artist and muralist. Carries himself like a bouncer. Third pillar of the Temporal Artists Guild — the spine that keeps the Guild focused, protected and moving.",
+            "Years inside a corporate art world taught him exactly what exploitation looks like on paper. He does not see the Institute as mysterious. He sees a parasite harvesting the vital energy of marginalised local artists to fund its own escape.",
+            "He vets every new recruit personally. He has never met Bob McKenzie and is fiercely protective of him anyway — a working man hunted across centuries by people with grant funding."
+        ],
+        toolLore: [
+            "A heavy painter's drop-cloth rolled over one shoulder, woven from industrial hemp and chronal-displaced asbestos recovered from the 1956 lab wreckage, saturated with raw Boaz static.",
+            "Thrown hard against any flat surface, the charge liquefies the architecture behind it for sixty seconds — a doorway where there was a wall. He carries his crew's escape route on his back.",
+            "Dense enough to work as a Faraday cage for chronal radiation. Dropped over an active breach, it smothers the reaction and hides the signature long enough for everyone to disappear."
+        ]
+    }
+];
+
+// ==========================================
+// STATIC RABBIT HOLE NODES (Flight 305 storyline)
+// Hardcoded so these work even if nothing has been entered into T3S yet.
+// Print/display the `code` value on the tag's RFID sticker or QR, or as a
+// URL: https://timelineprotocol.com/?scan=FLIGHT-71
+// To add real audio later, just add an `audioUrl: "https://…mp3"` field —
+// renderMediaModal already knows how to play it.
+// ==========================================
+const STATIC_LORE_NODES = [
+    {
+        id: 'static-flight-71',
+        code: 'FLIGHT-71',
+        title: 'Intercepted Audio: The Professor',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ CRI SIGNAL INTERCEPT — AFT AIRSTAIR DOOR RESONANCE ]<br/><br/>Audio recovered from the door's residual chronal signature. Full recording pending upload.<br/><br/>What's already decrypted: a second voice on the tape, calm, coaching. Bob isn't planning this alone.",
+        artistNotes: "I just decrypted this audio file off the door's resonance. Listen to this.\n\nBob didn't hijack that plane for the money. This 'Professor' set him up. Stanton used him as a kinetic anchor. Bob had no idea what he was doing."
+    },
+    {
+        id: 'static-dshs-1980',
+        code: 'DSHS-1980',
+        title: 'Intercepted Audio: The Deflection',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ CRI SIGNAL INTERCEPT — TIMELINE DEFLECTION ]<br/><br/>Stanton's voice, off the recovered tape, mid-panic. Bob missed his jump. The timeline kicked him sideways into a Department of Social and Health Services office, decades off target.<br/><br/>Full transcript pending upload.",
+        artistNotes: "Bob missed his jump. The timeline deflected him into a 1980s government building.\n\nStanton is flying blind here. He's sending a warehouse mechanic into a Class-5 containment zone just to save his own skin."
+    },
+    {
+        id: 'static-boaz-smash',
+        code: 'BOAZ-SMASH',
+        title: 'CRI Incident Report: Subject 89 Escape',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "CRITICAL FAILURE. Containment grid shattered via brute-force Boaz impact. Acoustic static generators (-440.01 Hz) destroyed. Subject 89 has phased through the Z-Axis into the timberland. Unidentified operative escaped through the Iron Door.",
+        artistNotes: "He actually did it. Bob used the Black Stone to smash the CRI mainframe and free the creature.\n\nHe isn't just a pawn anymore. CRI is hunting him, and Stanton lost control."
+    },
+    // Two extra hidden/bonus codes — easter eggs for players who go looking. Text is
+    // placeholder-but-usable; swap the copy for anything more specific whenever there's time.
+    {
+        id: 'static-hum-440',
+        code: 'HUM-440',
+        title: 'CRI Project: The West Seattle Hum',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ LEVEL 5 CLEARANCE ]<br/><br/>Containment is holding on something CRI won't name directly. A reverse acoustic resonance at -440.01 Hz keeps it paralyzed. The bleed is what people outside have been calling the 'Hum.'",
+        artistNotes: "They didn't just capture an animal. They captured something a lot bigger, and they've been torturing it with acoustic static for years.\n\nWhoever's stationed here walked right into a slaughterhouse."
+    },
+    {
+        id: 'static-sudo-clearance',
+        code: 'SUDO-CLEARANCE',
+        title: 'CRI Personnel File: Redacted',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ ACCESS PARTIALLY GRANTED ]<br/><br/>Most of this file is blacked out. What's left: a name, 'Stanton,' underlined three times, and a note in different handwriting that just says <em>watch him, not Bob.</em>",
+        artistNotes: "Somebody on the inside doesn't trust their own boss.\n\nWe might not be chasing the right guy tonight."
+    },
+    // Teaser for Saturday's Belltown Blast leg — deliberately vague, doesn't confirm
+    // anything about Subject 89, just plants the name and points the map at Belltown.
+    {
+        id: 'static-subject-89',
+        code: 'SUBJECT-89',
+        title: 'CRI Flagged Signal: Designation Unknown',
+        lat: BELLTOWN.lat, lng: BELLTOWN.lng,
+        text: "[ CRI SIGNAL — PARTIAL DECRYPT ]<br/><br/>Most of this file won't resolve. What's left: a containment designation &mdash; SUBJECT 89 &mdash; and a location stamp: BELLTOWN. Nothing else comes through the noise.",
+        artistNotes: "There's something else buried in this signal. A designation I've never seen CRI use before — Subject 89.\n\nWhatever it is, it's in Belltown. That's the next place we need eyes on."
+    }
+];
+
+// ==========================================
+// STATIC MAIN-SEQUENCE NODES (MONEY / SKETCH / EXIT)
+// Every operative profile (MONEY, SKETCH or EXIT) eventually needs all three of
+// these — SEQUENCES above just changes the order. Replaces the T3S keyword
+// search in getArtifactForType while CLOSED_LOOP_DEMO is on, so the clues shown
+// on the map are always this show's content, never whatever T3S resolves to.
+// Edit the `desc` (pre-scan clue) and `text`/`artistNotes` (post-scan) freely —
+// plain strings, no T3S needed.
+// ==========================================
+const STATIC_MAIN_NODES = {
+    MONEY: {
+        id: 'static-money',
+        code: 'RANSOM-200K',
+        title: 'The Ransom Bills',
+        lat: VENUE.lat, lng: VENUE.lng,
+        desc: "Locate the irradiated currency. CRI's tracer bills are still bleeding chronal static — the trail runs hot near the drop point.",
+        text: "[ CRI ASSET LOG — RECOVERED CURRENCY ]<br/><br/>Serial-tagged bills from the original ransom drop, corroded and warm to the touch. Chronal residue reads active — someone has been handling this cash recently. Decades after the jump, it shouldn't still be radioactive. Someone's been shuttling it back and forth.",
+        artistNotes: "Found the money. It's still hot — like it just changed hands five minutes ago, not fifty years ago.\n\nCRI's been quietly recovering these bills for years and burying the story. Bob's not hoarding this cash. Someone else is moving it."
+    },
+    SKETCH: {
+        id: 'static-sketch',
+        code: 'COMPOSITE-71',
+        title: 'The Composite Sketch',
+        lat: VENUE.lat, lng: VENUE.lng,
+        desc: "Locate the temporal echo. Witnesses keep describing the same face across decades — CRI calls it a resonance ghost.",
+        text: "[ CRI ASSET LOG — WITNESS COMPOSITE ]<br/><br/>Multiple composite sketches, filed forty years apart, of the same face. CRI's official line is coincidence. The bone structure, the eyes — it's not coincidence. It's the same man, refusing to age on schedule.",
+        artistNotes: "This sketch shouldn't exist twice. Same guy, same face, forty years apart, filed by two different sketch artists who never met.\n\nCRI knows exactly why. They're just not telling anyone who he really is."
+    },
+    EXIT: {
+        id: 'static-exit',
+        code: 'DROPZONE-305',
+        title: 'The Drop Zone',
+        lat: VENUE.lat, lng: VENUE.lng,
+        desc: "Find the exit portal. Somewhere along his vector, Flight 305's aft stairs opened onto more than just Washington air.",
+        text: "CRI FIELD NOTE — EXIT VECTOR CONFIRMED. Aft airstair deployed at low altitude over dense timberland. Standard jump physics do not account for the total absence of a body, a chute, or wreckage. The exit point reads as a seam, not a landing site.",
+        artistNotes: "He jumped off that plane and just... didn't land. Not here, not in this decade.\n\nCRI keeps calling it a disappearance. It's not a disappearance. It's a door."
+    }
 };
 
 const NODE_CONFIG = {
-    'KEY': { profile: 'THE SCIENTIST', desc: 'Analyze the resonance. Map the structure.', color: '#3b82f6', textClass: 'text-blue-400', borderClass: 'border-blue-500', bgClass: 'bg-blue-900/20', shape: 'SQUARE', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>` },
-    'LOCK': { profile: 'THE GUARD', desc: 'Secure the perimeter. Contain the anomaly.', color: '#f97316', textClass: 'text-orange-400', borderClass: 'border-orange-500', bgClass: 'bg-orange-900/20', shape: 'CIRCLE', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M10 15h4l-1.5 6h-1z"/></svg>` },
-    'KNOB': { profile: 'THE SCOUT', desc: 'Reconnaissance. Open new pathways.', color: '#a855f7', textClass: 'text-purple-400', borderClass: 'border-purple-500', bgClass: 'bg-purple-900/20', shape: 'TRIANGLE', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>` }
-};
-
-const getDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3; 
-    const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
-    const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
-    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
-    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    'MONEY': { profile: 'TRACK THE RANSOM', desc: 'Locate the irradiated currency.', color: '#10b981', textClass: 'text-green-400', borderClass: 'border-green-500', bgClass: 'bg-green-900/20', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>` },
+    'SKETCH': { profile: 'TRACK THE SUSPECT', desc: 'Locate the temporal echo.', color: '#f97316', textClass: 'text-orange-400', borderClass: 'border-orange-500', bgClass: 'bg-orange-900/20', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>` },
+    'EXIT': { profile: 'THE DROP ZONE', desc: 'Find the exit portal.', color: '#a855f7', textClass: 'text-purple-400', borderClass: 'border-purple-500', bgClass: 'bg-purple-900/20', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 12H16c-.7 2-2 3-4 3s-3.3-1-4-3H2.5"/><path d="M5.5 5.1L2 12v6c0 1.1.9 2 2 2h16a2 2 0 002-2v-6l-3.4-6.9A2 2 0 0017 4h-10c-.8 0-1.5.5-1.8 1.1z"/></svg>` }
 };
 
 export default function App() {
@@ -114,7 +283,7 @@ export default function App() {
     const [journalsDb, setJournalsDb] = useState([]);
     const [matrixDb, setMatrixDb] = useState({ nodes: [], edges: [] });
     
-    const [activeTab, setActiveTab] = useState('MAP');
+    const [activeTab, setActiveTab] = useState('MAP'); // Default to MAP
     const [toast, setToast] = useState(null);
     const [decrypting, setDecrypting] = useState(false);
     const [activeMedia, setActiveMedia] = useState(null);
@@ -125,39 +294,59 @@ export default function App() {
     const [trackingState, setTrackingState] = useState('IDLE'); 
     const [animatingSelection, setAnimatingSelection] = useState(null);
 
-    const [bootPhase, setBootPhase] = useState(0); 
+    const [bootPhase, setBootPhase] = useState(0);
+    const [showSandbox, setShowSandbox] = useState(false);
+    const [showRupture, setShowRupture] = useState(false);
+    const [activeArtist, setActiveArtist] = useState(null);
+
+    // DEV HARNESS — enabled with ?debug=1 in the URL. Never shows for players.
+    const [debugMode] = useState(() => {
+        try { return new URLSearchParams(window.location.search).has('debug'); }
+        catch { return false; }
+    });
+    const [debugOpen, setDebugOpen] = useState(true);
     
     const [hackerIntroPhase, setHackerIntroPhase] = useState(0); 
+    const [hackerColdDropPhase, setHackerColdDropPhase] = useState(0); 
+    const [pendingColdDropMedia, setPendingColdDropMedia] = useState(null);
     const [hackerInterludePhase, setHackerInterludePhase] = useState(0); 
     const [interludeLines, setInterludeLines] = useState([]);
     const [pendingInterludeMedia, setPendingInterludeMedia] = useState(null);
     const [hackerEndPhase, setHackerEndPhase] = useState(0); 
+    
+    const [hackerStep, setHackerStep] = useState(0); 
+    const [userAlias, setUserAlias] = useState('');
+    const [userEmail, setUserEmail] = useState('');
+    const [isTransmitting, setIsTransmitting] = useState(false);
 
     const [gameState, setGameState] = useState(() => {
-        const saved = localStorage.getItem('timeline_protocol_citywide');
+        const saved = localStorage.getItem('timeline_protocol_flight305_v3');
         return saved ? JSON.parse(saved) : {
             hasSeenTutorial: false,
             hackerIntroDone: false,
             selectedPath: null,
             currentStepIndex: 0,
             unlockedNodes: [],
-            clearedPaths: [], 
+            unlockedArtists: [],
             gameComplete: false
         };
     });
 
-    useEffect(() => localStorage.setItem('timeline_protocol_citywide', JSON.stringify(gameState)), [gameState]);
+    const isArtistUnlocked = (artistId) => (gameState.unlockedArtists || []).includes(artistId);
 
-    // CINEMATIC BOOT SEQUENCE
+    useEffect(() => localStorage.setItem('timeline_protocol_flight305_v3', JSON.stringify(gameState)), [gameState]);
+
+    // CINEMATIC BOOT SEQUENCE TIMING
     useEffect(() => {
-        if (!gameState.hasSeenTutorial) {
-            const t1 = setTimeout(() => setBootPhase(1), 3500); 
-            const t2 = setTimeout(() => setBootPhase(2), 6500); 
-            return () => { clearTimeout(t1); clearTimeout(t2); };
-        } else {
+        if (!gameState.hasSeenTutorial && hackerColdDropPhase === 0) {
+            const t1 = setTimeout(() => setBootPhase(1), 3500);   // CRI Logo -> Timeline Protocol
+            const t2 = setTimeout(() => setBootPhase(1.5), 6500); // Timeline Protocol -> Failed Flight Plan
+            const t3 = setTimeout(() => setBootPhase(2), 9500);   // Failed Flight Plan -> Sandbox Menu
+            return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+        } else if (hackerColdDropPhase === 0) {
             setBootPhase(3); 
         }
-    }, [gameState.hasSeenTutorial]);
+    }, [gameState.hasSeenTutorial, hackerColdDropPhase]);
 
     useEffect(() => {
         if (!appId) return;
@@ -168,13 +357,25 @@ export default function App() {
         return () => { unsubArts(); unsubIdeas(); unsubJournals(); unsubMatrix(); };
     }, []);
 
-    const getAllItems = () => [...artifactsDb, ...ideasDb, ...journalsDb];
+    const getAllItems = () => {
+        const staticItems = [...Object.values(STATIC_MAIN_NODES), ...STATIC_LORE_NODES];
+        if (CLOSED_LOOP_DEMO) return staticItems;
+        return [...artifactsDb, ...ideasDb, ...journalsDb, ...staticItems];
+    };
 
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search || window.location.hash.split('?')[1]);
         const scanCode = urlParams.get('scan');
-        if (scanCode && artifactsDb.length > 0) {
-            processScan(scanCode.toUpperCase());
+        if (!scanCode) return;
+
+        // Artist dossier tags and closed-loop static content don't depend on
+        // Firestore, so they must not wait for it — venue wifi may have no
+        // internet at all tonight, and artifactsDb would just never load.
+        const normalized = scanCode.trim().toUpperCase();
+        const isArtistTag = TEMPORAL_ARTISTS.some(a => a.scanCode === normalized);
+
+        if (isArtistTag || CLOSED_LOOP_DEMO || artifactsDb.length > 0) {
+            processScan(normalized);
             window.history.replaceState({}, document.title, window.location.pathname);
         }
     }, [artifactsDb]);
@@ -186,7 +387,7 @@ export default function App() {
 
     const handleReset = () => {
         if (window.confirm("WARNING: Purge device memory?")) {
-            localStorage.removeItem('timeline_protocol_citywide');
+            localStorage.removeItem('timeline_protocol_flight305_v3');
             window.location.reload();
         }
     };
@@ -196,34 +397,28 @@ export default function App() {
         setTimeout(() => {
             setGameState(prev => ({ ...prev, selectedPath: pathKey }));
             setAnimatingSelection(null);
-            showToast(`${NODE_CONFIG[pathKey].profile} PROFILE LOCKED. PROCEED TO SECTOR.`);
+            setBootPhase(2.5); // Go to Field Manual
         }, 1500);
     };
 
-    const startTracking = () => {
-        if (!navigator.geolocation) return setTrackingState('ERROR');
-        setTrackingState('ACTIVE');
-        navigator.geolocation.watchPosition(
-            (pos) => setPlayerLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-            (err) => { setTrackingState('ERROR'); showToast("GPS SIGNAL LOST.", "error"); },
-            { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
-        );
-    };
-
     const getArtifactForType = (type) => {
-        const allItems = [...artifactsDb, ...ideasDb, ...journalsDb];
+        // Closed-loop demo: always this show's hardcoded node, never a T3S keyword
+        // guess (that's how "TOM" / old-show clues were leaking through before).
+        if (CLOSED_LOOP_DEMO) return STATIC_MAIN_NODES[type] || null;
+
+        const allItems = getAllItems();
         return allItems.find(a => {
-            const loc = (a.location || '').toLowerCase();
-            const title = (a.title || a.name || '').toLowerCase();
-            if (type === 'KEY' && (loc.includes('throttle') || loc.includes('bottle') || title.includes('sector 1'))) return true;
-            if (type === 'LOCK' && (loc.includes('10x20') || loc.includes('painter') || title.includes('sector 2'))) return true;
-            if (type === 'KNOB' && (loc.includes('tertiary') || loc.includes('third') || loc.includes('pillar') || title.includes('sector 3'))) return true;
-            if (type === 'JELLYFISH' && (loc.includes('jellyfish') || title.includes('catalyst') || title.includes('core'))) return true;
+            const everything = `${a.title || ''} ${a.name || ''} ${a.location || ''} ${a.desc || ''} ${a.lore || ''} ${a.artistNotes || ''}`.toLowerCase();
+            if (type === 'MONEY' && (everything.includes('money') || everything.includes('ransom') || everything.includes('cash'))) return true;
+            if (type === 'SKETCH' && (everything.includes('sketch') || everything.includes('cooper') || everything.includes('suspect'))) return true;
+            if (type === 'EXIT' && (everything.includes('exit') || everything.includes('parachute') || everything.includes('forest') || everything.includes('drop'))) return true;
             return false;
         });
     };
 
     const getMatrixConnections = (mediaItem) => {
+        // Matrix connections are a T3S-only feature — nothing to link while closed-loop.
+        if (CLOSED_LOOP_DEMO) return [];
         if (!mediaItem || !matrixDb || !matrixDb.nodes || !matrixDb.edges) return [];
         const connections = [];
         const myMatrixNodes = matrixDb.nodes.filter(n => n.dataId === mediaItem.id);
@@ -245,9 +440,31 @@ export default function App() {
         return Array.from(new Map(connections.map(c => [c.item.id, c])).values());
     };
 
-    const processScan = (scanCode) => {
-        if (!scanCode) return;
-        
+    const processScan = (rawScanCode) => {
+        if (!rawScanCode) return;
+
+        // Normalize once. The manual-entry field is only styled uppercase via CSS —
+        // its actual value keeps whatever case was typed, so lowercase input used to
+        // silently fail every exact-match comparison below.
+        const scanCode = String(rawScanCode).trim().toUpperCase();
+
+        // TEMPORAL ARTIST DOSSIER TAGS
+        const artistHit = TEMPORAL_ARTISTS.find(a => a.scanCode === scanCode);
+        if (artistHit) {
+            playGlitchSound();
+            setDecrypting(true);
+            setTimeout(() => {
+                setDecrypting(false);
+                setGameState(prev => ({
+                    ...prev,
+                    unlockedArtists: Array.from(new Set([...(prev.unlockedArtists || []), artistHit.id]))
+                }));
+                setActiveArtist(artistHit);
+                showToast(`DOSSIER ${artistHit.id} DECRYPTED.`, "success");
+            }, 2000);
+            return;
+        }
+
         if (scanCode === 'TAG-NIGHTMARE-OVERRIDE') {
             if (!gameState.selectedPath || gameState.gameComplete) return showToast("NO ACTIVE NODE TO OVERRIDE.", "error");
             const currentSequence = SEQUENCES[gameState.selectedPath];
@@ -274,8 +491,9 @@ export default function App() {
         let isRabbitHole = false;
         let edgeTrack = 'UNKNOWN';
 
-        const edges = matrixDb?.edges || [];
-        const nodes = matrixDb?.nodes || [];
+        // Matrix/edge cipher lookups are T3S-only — skip entirely in closed-loop mode.
+        const edges = CLOSED_LOOP_DEMO ? [] : (matrixDb?.edges || []);
+        const nodes = CLOSED_LOOP_DEMO ? [] : (matrixDb?.nodes || []);
 
         const edge = edges.find(e => e.cipherCode && e.cipherCode.toUpperCase() === scanCode);
         if (edge) {
@@ -298,17 +516,54 @@ export default function App() {
             return showToast("ASSET ALREADY IN DATA VAULT.", "success");
         }
 
-        const customHackerText = targetItem.artistNotes || "";
-        const lines = customHackerText ? stripHtmlToLines(customHackerText) : ["I broke the CRI encryption on this node. Adding the file to your Data Vault now."];
-        
-        setInterludeLines([isRabbitHole ? `[ DEEP MATRIX NODE: ${edgeTrack} ]` : "[ FIREWALL BYPASSED ]", ...lines]);
-        setPendingInterludeMedia(targetItem);
-        
-        setGameState(prev => ({ ...prev, unlockedNodes: [...prev.unlockedNodes, { id: targetItem.id, type: 'MANUAL', lat: targetItem.lat, lng: targetItem.lng }] }));
-        
-        playGlitchSound();
-        setHackerInterludePhase(1);
-        setTimeout(() => setHackerInterludePhase(2), 800);
+        // Check if this scan matches the current required step in their sequence
+        let activeType = null;
+        let currentSequence = null;
+        if (gameState.selectedPath && !gameState.gameComplete) {
+            currentSequence = SEQUENCES[gameState.selectedPath];
+            activeType = currentSequence[gameState.currentStepIndex];
+            const expectedArtifact = getArtifactForType(activeType);
+            
+            if (expectedArtifact && expectedArtifact.id === targetItem.id) {
+                setDecrypting(true);
+                setTimeout(() => {
+                    setDecrypting(false);
+                    triggerNodeUnlock(targetItem, activeType, currentSequence);
+                }, 2500);
+                return;
+            }
+        }
+
+        // Random sticker or rabbit hole
+        setDecrypting(true);
+        setTimeout(() => {
+            setDecrypting(false);
+            
+            if (!gameState.hackerIntroDone) {
+                setBootPhase(3);
+                // Unlock immediately — the intro cutscene used to swallow this scan:
+                // ACCEPT OVERRIDE only flipped hackerIntroDone and never touched
+                // pendingInterludeMedia, so the very first tag a player ever scanned
+                // vanished instead of landing in the vault.
+                setGameState(prev => ({ ...prev, hasSeenTutorial: true, unlockedNodes: [...prev.unlockedNodes, { id: targetItem.id, type: 'MANUAL', lat: targetItem.lat, lng: targetItem.lng }] }));
+                playGlitchSound();
+                setHackerIntroPhase(1);
+                setTimeout(() => setHackerIntroPhase(2), 800);
+                setPendingInterludeMedia(targetItem);
+                return;
+            }
+
+            const customHackerText = targetItem.artistNotes || "";
+            const lines = customHackerText ? stripHtmlToLines(customHackerText) : ["I broke the CRI encryption on this node. Adding the file to your Data Vault now."];
+            
+            setInterludeLines([isRabbitHole ? `[ DEEP MATRIX NODE: ${edgeTrack} ]` : "[ FIREWALL BYPASSED ]", ...lines]);
+            setPendingInterludeMedia(targetItem);
+            setGameState(prev => ({ ...prev, unlockedNodes: [...prev.unlockedNodes, { id: targetItem.id, type: 'MANUAL', lat: targetItem.lat, lng: targetItem.lng }] }));
+            
+            playGlitchSound();
+            setHackerInterludePhase(1);
+            setTimeout(() => setHackerInterludePhase(2), 800);
+        }, 2500);
     };
 
     const triggerNodeUnlock = (targetArtifact, activeType, currentSequence) => {
@@ -318,11 +573,19 @@ export default function App() {
         const nextStep = gameState.currentStepIndex + 1;
         const isComplete = nextStep >= currentSequence.length;
         
+        setGameState(prev => ({
+            ...prev,
+            unlockedNodes: [...prev.unlockedNodes, { id: targetArtifact.id, type: activeType, lat: targetArtifact.lat, lng: targetArtifact.lng }],
+            currentStepIndex: nextStep,
+            gameComplete: isComplete
+        }));
+
         if (isComplete) {
             playGlitchSound();
             setHackerEndPhase(1);
             setTimeout(() => setHackerEndPhase(2), 800);
         } else if (gameState.currentStepIndex === 0 && !gameState.hackerIntroDone) {
+            setPendingInterludeMedia(targetArtifact);
             playGlitchSound();
             setHackerIntroPhase(1);
             setTimeout(() => setHackerIntroPhase(2), 800);
@@ -335,49 +598,41 @@ export default function App() {
             setHackerInterludePhase(1);
             setTimeout(() => setHackerInterludePhase(2), 800);
         }
-
-        setGameState(prev => ({
-            ...prev,
-            unlockedNodes: [...prev.unlockedNodes, { id: targetArtifact.id, type: activeType, lat: targetArtifact.lat, lng: targetArtifact.lng }],
-            clearedPaths: [...prev.clearedPaths, activeType],
-            currentStepIndex: nextStep,
-            gameComplete: isComplete
-        }));
     };
 
     useEffect(() => {
-        if (activeTab !== 'MAP' || !mapRef.current || bootPhase !== 3) return;
+        // NOTE: no longer gated on bootPhase — the map builds immediately so it is
+        // visible behind the cinematic splash screens.
+        if (activeTab !== 'MAP' || !mapRef.current) return;
 
         if (!mapInstance.current) {
-            // Centers on Seattle by default, allows free roaming
-            const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false }).setView([SEATTLE_CENTER.lat, SEATTLE_CENTER.lng], 13);
+            const center = CLOSED_LOOP_DEMO ? VENUE : SEATTLE_CENTER;
+            const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false }).setView([center.lat, center.lng], CLOSED_LOOP_DEMO ? 16 : 13);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
-            
+
             dynamicLayer.current = L.layerGroup().addTo(map);
             mapInstance.current = map;
-
-            map.on('click', (e) => setPlayerLoc({ lat: e.latlng.lat, lng: e.latlng.lng }));
         }
 
-        if (playerLoc) {
-            if (!playerMarker.current) {
-                const dot = `<div style="width:14px;height:14px;background:#06b6d4;border-radius:50%;box-shadow:0 0 15px #06b6d4;border:2px solid #fff;"></div>`;
-                const icon = L.divIcon({ className: 'player-pin', html: dot, iconSize: [14,14], iconAnchor: [7,7] });
-                playerMarker.current = L.marker([playerLoc.lat, playerLoc.lng], { icon, zIndexOffset: 1000 }).addTo(mapInstance.current);
-                mapInstance.current.flyTo([playerLoc.lat, playerLoc.lng], 16, { animate: true, duration: 1 });
-            } else {
-                playerMarker.current.setLatLng([playerLoc.lat, playerLoc.lng]);
-            }
-        }
+        // Leaflet mis-measures if it mounted while overlaid; re-measure on reveal.
+        setTimeout(() => mapInstance.current && mapInstance.current.invalidateSize(), 250);
 
         dynamicLayer.current.clearLayers();
+
+        // Always-visible venue pin so the map isn't empty before anyone has scanned
+        // anything — all of tonight's physical props are at this one location.
+        if (CLOSED_LOOP_DEMO) {
+            const venueSvg = `<div style="color:#06b6d4; filter:drop-shadow(0 0 10px #06b6d4);"><svg viewBox="0 0 24 24" fill="currentColor" class="w-9 h-9"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></div>`;
+            L.marker([VENUE.lat, VENUE.lng], { icon: L.divIcon({ html: venueSvg, className: 'map-overlay', iconSize: [36,36], iconAnchor: [18,36] }) })
+                .bindTooltip(VENUE.label, { permanent: false, direction: 'top' })
+                .addTo(dynamicLayer.current);
+        }
 
         const vectorPoints = [];
         gameState.unlockedNodes.forEach(node => {
             if (!node.lat || !node.lng) return;
             vectorPoints.push([node.lat, node.lng]);
-            const config = NODE_CONFIG[node.type] || { color: '#00ff41', icon: `<circle cx="12" cy="12" r="8"></circle>` };
-            const svgHtml = `<div style="color:${config.color}; filter:drop-shadow(0 0 10px ${config.color});"><svg viewBox="0 0 24 24" fill="currentColor" class="w-8 h-8">${config.icon}</svg></div>`;
+            const svgHtml = `<div style="color:#00ff41; filter:drop-shadow(0 0 10px #00ff41);"><svg viewBox="0 0 24 24" fill="currentColor" class="w-8 h-8"><circle cx="12" cy="12" r="8"></circle></svg></div>`;
             L.marker([node.lat, node.lng], { icon: L.divIcon({ html: svgHtml, className: 'map-overlay', iconSize: [32,32], iconAnchor: [16,16] }) }).addTo(dynamicLayer.current);
         });
 
@@ -385,19 +640,38 @@ export default function App() {
             L.polyline(vectorPoints, { color: '#a855f7', weight: 4, dashArray: '10, 15', opacity: 0.8, className: 'vector-line' }).addTo(dynamicLayer.current);
         }
 
-        if (gameState.selectedPath && !gameState.gameComplete && playerLoc) {
-            const currentSequence = SEQUENCES[gameState.selectedPath];
-            const activeType = currentSequence[gameState.currentStepIndex];
-            const targetArtifact = getArtifactForType(activeType);
+    }, [activeTab, gameState, artifactsDb, bootPhase]);
 
-            if (targetArtifact && targetArtifact.lat && targetArtifact.lng) {
-                const dist = getDistance(playerLoc.lat, playerLoc.lng, parseFloat(targetArtifact.lat), parseFloat(targetArtifact.lng));
-                if (dist <= (parseFloat(targetArtifact.radius) || 30)) {
-                    triggerNodeUnlock(targetArtifact, activeType, currentSequence);
-                }
-            }
+    const handleTagRegistration = async (e) => {
+        if (e) e.preventDefault();
+        
+        if (!userAlias.trim() || !userEmail.trim()) {
+            return showToast("ENTER ALIAS AND FREQUENCY.", "error");
         }
-    }, [activeTab, playerLoc, gameState, artifactsDb, bootPhase]);
+        
+        setIsTransmitting(true);
+        
+        try {
+            const FORM_ENDPOINT = "https://formspree.io/f/xrededjy"; 
+            
+            const response = await fetch(FORM_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ alias: userAlias, email: userEmail, source: 'Flight 305 V1' })
+            });
+
+            if (response.ok) {
+                setHackerStep(1); 
+            } else {
+                showToast("TRANSMISSION FAILED. TRY AGAIN.", "error");
+            }
+        } catch(err) {
+            console.error("Form Error:", err);
+            showToast("NETWORK INTERFERENCE. CHECK CONNECTION.", "error");
+        } finally {
+            setIsTransmitting(false);
+        }
+    };
 
     const getActiveClue = () => {
         if (!gameState.selectedPath || gameState.gameComplete) return null;
@@ -426,6 +700,14 @@ export default function App() {
                     
                     <div className="overflow-y-auto custom-scrollbar pr-2 space-y-6">
                         <h3 className="text-xl font-bold text-white">{mediaItem.title || mediaItem.name}</h3>
+                        
+                        {mediaItem.assignedTo && (
+                            <div className="bg-blue-900/20 border border-blue-500/50 p-3 rounded flex items-center gap-2">
+                                <Icons.Cpu className="text-blue-400" size={16}/>
+                                <span className="text-xs font-mono text-blue-300 uppercase tracking-widest">ARTIST: {mediaItem.assignedTo}</span>
+                            </div>
+                        )}
+
                         {mediaItem.imageUrl && <img src={mediaItem.imageUrl} alt="Asset" className="w-full rounded border border-gray-800 shadow-lg" />}
                         {mediaItem.videoUrl && <video src={mediaItem.videoUrl} controls autoPlay className="w-full rounded border border-gray-800 shadow-lg" />}
                         {mediaItem.audioUrl && <audio src={mediaItem.audioUrl} controls className="w-full" />}
@@ -474,6 +756,15 @@ export default function App() {
                 
                 .hacker-bg { background-color: #050505; background-image: radial-gradient(rgba(0, 255, 65, 0.15) 1px, transparent 1px); background-size: 20px 20px; }
                 .hacker-text { color: #00ff41; font-family: monospace; text-shadow: 0 0 5px #00ff41; }
+
+                /* CINEMATIC TITLE SEQUENCE */
+                .title-card { font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; font-weight: 900; font-size: clamp(3.2rem, 19vw, 9rem); line-height: 0.86; letter-spacing: -0.02em; text-transform: uppercase; text-shadow: 0 0 40px rgba(234,179,8,0.45), 0 6px 0 rgba(0,0,0,0.6); animation: titlePunch 0.9s cubic-bezier(0.16, 1, 0.3, 1) both; }
+                @keyframes titlePunch { 0% { opacity: 0; transform: scale(1.18); letter-spacing: 0.12em; } 100% { opacity: 1; transform: scale(1); letter-spacing: -0.02em; } }
+                .letterbox-top, .letterbox-bottom { height: 8vh; animation: letterbox 1.2s ease-out both; }
+                @keyframes letterbox { from { height: 0; } to { height: 8vh; } }
+
+                .rupture-bg { background-color: #0a0000; background-image: radial-gradient(rgba(239, 68, 68, 0.18) 1px, transparent 1px); background-size: 20px 20px; backdrop-filter: blur(6px); animation: rupturePulse 3s ease-in-out infinite; }
+                @keyframes rupturePulse { 0%, 100% { box-shadow: inset 0 0 120px rgba(239,68,68,0.15); } 50% { box-shadow: inset 0 0 200px rgba(239,68,68,0.35); } }
                 
                 .jarring-text { font-family: 'Impact', 'Arial Black', sans-serif; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; transform: scaleY(1.4) skewX(-4deg); text-shadow: 3px 3px 0px rgba(255,0,60,0.7), -3px -3px 0px rgba(0,234,255,0.7); color: #fff; }
 
@@ -493,6 +784,15 @@ export default function App() {
 
                 @keyframes shatter { 0% { transform: scale(1); filter: blur(0px); opacity: 1; } 20% { transform: scale(1.4) translate(-5px, 5px) skewX(20deg); filter: blur(2px); opacity: 0.8; } 100% { transform: scale(1) translate(0,0); opacity: 1; } }
                 .shatter-effect { animation: shatter 1.5s ease-out forwards; z-index: 50; position: relative; }
+
+                /* Draws the eye to the profile buttons so people tap instead of reading first. */
+                @keyframes profilePulse {
+                    0%, 100% { box-shadow: 0 0 0 0 var(--pulse-color, rgba(6,182,212,0.55)), 0 0 12px 2px var(--pulse-color, rgba(6,182,212,0.35)); }
+                    50% { box-shadow: 0 0 0 6px transparent, 0 0 22px 6px var(--pulse-color, rgba(6,182,212,0.55)); }
+                }
+                .profile-pulse { animation: profilePulse 1.6s ease-in-out infinite; }
+                @keyframes tapBounce { 0%, 100% { transform: translateY(0); opacity: 0.9; } 50% { transform: translateY(4px); opacity: 0.5; } }
+                .tap-hint { animation: tapBounce 1.2s ease-in-out infinite; }
                 .vector-line { animation: dash 20s linear infinite; }
                 @keyframes dash { to { stroke-dashoffset: -1000; } }
                 .leaflet-container { background: #020617 !important; font-family: 'Inter', sans-serif; }
@@ -502,69 +802,270 @@ export default function App() {
                 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
             `}</style>
 
-            {/* BOOT SEQUENCE 0: CRI LOGO */}
-            {bootPhase === 0 && (
-                <div className="fixed inset-0 bg-[#020617] z-[9999] flex flex-col items-center justify-center p-6">
-                    <div className="fade-in-seq-1 mb-8">
-                        <svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 1024" className="w-48 h-48 md:w-64 md:h-64 text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]" fill="currentColor" fillRule="evenodd" clipRule="evenodd">
-  <path d="M630.74,174.62l15.47-.27c244.42,4.48,391.08,284.57,247.05,487.33-126.75,178.44-394.28,171.76-512.83-11.88-129.65-200.85,13.54-467.51,250.29-475.18h.02ZM848.32,698.86c192.06-184.43,63.86-508.1-200.47-514.57-201.33-4.94-351.46,189.39-294.51,383.66,62.98,214.85,332.96,286.48,494.98,130.91Z"/>
-  <path d="M867.55,247.32c49.19,47.23,84.42,112.75,95.92,180.23,7.15,42,6.37,85.36-2.29,127.07l-7.55-1.79c1.26-11.31,3.87-22.45,5-33.78,20.6-205.16-150.65-376.28-356.08-352.78-127.78,14.61-237.42,111.15-270.21,234.98-15.09,56.96-14.42,117.33,2.14,173.88l-8.16,2.96c-3.66-15.16-7.63-30.46-9.8-45.93-30-213.52,147.81-398.71,362.6-374.14,70.19,8.03,137.77,40.65,188.45,89.34l-.02-.04Z"/>
-  <path d="M633.39,859.54h-7.44l.84-44.56c2.35.29,7.06-.86,8.68.8,3.47,3.55,5.4,21.55,9.06,26.44l.46-27.2,7.02.74-.46,43.81c-2.23-.36-7.27.88-8.68-.82-1.64-1.95-5.97-20.33-7.59-24.59-.4-1.05-.48-2.44-1.89-2.65v28.06-.02Z"/>
-  <path d="M832.35,775.35l14.86,22.68-5.53,3.64-1.53-.65-24.24-35.15c2.06-1.95,5.23-5.02,8.18-4.2,3.15.88,21.29,17.13,22.28,16.16l-14.74-21.19-.11-1.87,6.03-2.46,24.47,35.84-7.44,4.27-22.26-17.03.02-.04Z"/>
-  <path d="M703.58,825.69l5.78,28.06-6.1.78-1.18-1.35-8.43-42.33,8.95-.69,14.15,24.64-4.96-27.24,6.64-.48,8.7,42.63-8.37,1.7c-5.44-8.18-8.95-18.35-15.24-25.69l.04-.02Z"/>
-  <path d="M444.9,750.86c3.26,3.78,3.64,8.7,1.98,13.37-1.35,3.85-13.62,19.78-17.07,21.71-3.07,1.72-6.98,1.74-10.22.53-1.39-.53-13.24-8.74-13.66-9.48-.48-.88-.59-1.62,0-2.46l24.53-32.88c.92-.55,2.23-.19,3.13.27,1.01.5,10.47,7.97,11.29,8.93h.02ZM434.2,752.31c-1.45.38-18.2,22.53-17.55,23.88,3.55,3.22,6.12,3.87,9.96.8,2.48-1.98,12.19-15.22,12.63-17.95.48-2.94-2.17-7.46-5.04-6.71v-.02Z"/>
-  <path d="M511.22,812.49c6.18,7.27-3.03,14.48-2.48,22.28l-8.3-3.01c-1.32-5.74,12.42-20.26-3.15-19.99l-5.91,15.55-8.22-2.46,17.85-40.4c1.18-.36,14.57,5.47,16.27,6.71,8.87,6.35,3.8,19.91-6.05,21.34v-.02ZM511.83,796.18c-.97-1.03-5.07-2.44-6.43-1.49-1.74,5.19-8.35,11.75,1.32,12.07,4.98.17,7.95-7.55,5.11-10.57h0Z"/>
-  <path d="M601,811.86c6.85-1.07,15.01,2.61,15.91,10.11.67,5.61-.67,20.33-2.23,25.88-1.41,5.04-4.12,9.38-9.73,10.07-18.37,2.27-17.8-11.5-16-25.08,1.05-7.99,2.29-19.46,12.07-20.98h-.02ZM607.62,820.12c-1.32-1.32-5.13-1.28-6.68-.27-2.12,1.39-4.88,21.88-4.73,25.27.19,4.39,4.08,8.45,7.99,5.42,2.82-2.19,5.82-28.04,3.45-30.42h-.02Z"/>
-  <path d="M915.75,671.26c-.57-.8,3.43-7.55,5.17-7.25l28.63,17.72h2.5c3.55-1.49,4.41-5.59,1.58-8.26l-28.48-17.78,4.18-7.4c7.21,6.29,28.04,14.4,32.5,21.95,4.62,7.86-2.96,20.37-11.81,20.14-8.85-.23-25.37-16-34.24-19.11h-.02Z"/>
-  <path d="M323.03,685.36l-3.22-7.67,6.37-6.05c-.74-1.93-3.43-8.56-5.21-8.58l-9,2.54-3.83-6.24,43.79-13.2c1.64,2.1,5.72,6.83,4.52,9.46l-33.44,29.74h.02ZM346.13,654.82c-5.13,2.52-24.03,4.33-12.91,11.5l12.91-11.5Z"/>
-  <path d="M965.23,613.54c1.47-7,3.28-16.31,11.46-8.58l-3.68,11.92,9.16,3.91,6.29-12.91,7.32,1.56-8.74,22.32-41.26-15.7c-.53-.61-.32-1.22-.21-1.91.65-4.54,6.33-14.63,7.82-19.65l6.73,2.92-4.75,12.36,9.88,3.76Z"/>
-  <path d="M419.59,729.13l-22.3,40.42-6.5-5.49,4.77-8.28c.23-1.45-6.05-6.85-7.38-6.52l-6.96,5.28-6.16-5.26,36.28-25.62c2.92-.8,5.02,5.36,8.26,5.49l-.02-.02ZM408.03,734.89l-13.18,9.48,4.54,4.54,5.19-7.17s3.45-6.85,3.45-6.85Z"/>
-  <path d="M330.45,638.3l-2.46-7.76c2.67-2.38,8.35-3.17,7.06-7.99-1.18-4.98-10.87-.86-13.92.23-4.41,1.58-18.67,6.62-16.96,12.42s7.82,2.12,10.99.57c.76-.36.63-1.43,1.64.02l2.9,8.24c-7.19,2.46-15.6,4.54-20.52-3.01-3.24-4.98-3.93-11.52-.13-16.37,3.49-4.44,26.67-14.21,32.2-13.31,14.48,2.38,14.84,24.47-.84,26.91l.02.04Z"/>
-  <path d="M677.87,813.42l14.15,43.64-8.28-.38-2.52-8.62-9.73.84-.9,9.82-7.74.76-1.18-1.81,5.74-42.19c.8-2.48,8.3-2.44,10.51-2.06h-.04ZM674.67,824.03c-1.14-1.22-1.51.06-1.64,1.22-.61,4.98-.53,11.04-.82,16.12,1.16.15,6.45-.04,6.66-1.35l-4.2-16Z"/>
-  <path d="M582.14,822.33l-7.36-.76c1.22-4.37-2.1-11.04-6.68-7.08-7,6.07,7.19,13.41,9.84,18.35,3.55,6.62.04,17.91-7.76,19.21-11.33,1.91-20.62-5.47-16.86-17.28l7.9,1.6c.82,1.05-2.67,6.16,2.35,8.39,2.8,1.24,6.66-.97,7.08-3.85.97-6.77-12.99-10.74-13.07-20.58-.15-20.58,29.93-16.75,24.53,2h.02Z"/>
-  <path d="M341.08,684.61l3.26,6.01c-7.71,4.52-2.77,15.03,3.87,9.63,5.95-4.81-3.93-20.56,8.39-27.12,14.61-7.78,26.07,13.12,12.34,21.25l-4.54-5.44,3.64-5.15c.44-2-2.46-4.44-4.31-4.86-11.86,4.67.92,17.3-8.51,26.67-15.01,14.95-35.02-13.26-14.15-21.02l.02.02Z"/>
-  <path d="M858.54,735.08c4.96-.8,9.56,1.37,11.77,5.97l-6.2,4.37c-1.24-.11-2.75-4.83-7.02-2.71-2.27,1.6-2.38,5.15-.44,7.06,5.09,5.13,18.33-4.14,26.51,4.88,12.59,13.87-10.97,33.13-21.02,16.25l5.3-4.69c3.07,2.96,10.11,5.7,11.14-.42,1.66-9.75-10.05-5.68-14.46-5.34-19.82,1.53-22.37-22.68-5.57-25.37h0Z"/>
-  <path d="M385.04,715.21c5.99-2.14,5.49-11.01-1.98-9.02-2.48.67-18.81,15.01-19.82,17.38-1.16,2.67.11,4.81,2.44,6.24,3.66,0,6.45-2.61,9.04-4.77,9.84,4.5,3.32,11.2-4.31,12.23-11.41,1.53-19.76-10.59-13.07-20.49,3.32-4.94,19.82-18.43,25.64-19,7.17-.69,15.55,7.8,14.19,15.03-.36,1.91-4.79,8.49-6.45,9.33-2.14,1.09-6.75-5.09-5.65-6.94h-.02Z"/>
-  <path d="M780.32,785.25l1.62,7.38-12.3,4.23c-.88,1.03,2.86,9.65,3.72,9.84l12.7-4.06,1.64,6.5-11.48,4.25,4.08,11.14c2.19,1.39,10.59-4.41,13.58-4.52l2.96,7.36-21.08,8.07-16.96-41.41,21.52-8.74v-.02Z"/>
-  <path d="M476.52,778.61l-13.94-6.52-3.99,7.8,10.17,7-2.17,6.56c-1.79,1.24-9.4-6.03-11.83-6.5l-6.35,10.19,12.38,7.15-3.74,6.47-19.17-10.8.32-3.11,21.06-35.48c1.11-.34,2.04.17,3.01.59,1.53.65,15.85,9.25,16.37,10.07,1.39,2.12-2.23,4.29-2.14,6.6l.02-.02Z"/>
-  <path d="M747.36,813.29c.02-6.41-9.06-10.51-9.75-2.67-.23,2.71,5.68,21.8,7.36,24.47s4.6,3.93,6.96,1.39c4.14-4.52-5.84-13.01,7.4-12.46,1.91.08.9.08,1.22,1.28.74,2.8,1.16,6.96.76,9.84-1.32,9.42-16.06,13.05-22.2,6.66-4.79-4.98-10.11-26.91-9.04-33.78,1.14-7.29,10.32-10.01,16.69-8.56,4.81,1.09,6.68,7.34,8.83,10.97l-8.2,2.86h-.02Z"/>
-  <path d="M538.5,806.73l-2.46,8.53c5.28,4.62,16.35,1.79,9.46,11.96l-12.02-3.68-3.34,10.7,14.1,4.67-2.06,5.76c-.38.67-.95.8-1.64.86-1.05.08-20.05-5.32-20.28-6.35l12.46-42.4,20.62,6.18c4.01,13.75-12.57,2.12-14.82,3.76h-.02Z"/>
-  <path d="M912.94,674.69l5.89,4.46c-.48,2.92-6.01,4.92-4.37,7.86l27.33,21.48c.99,2.04-3.11,5.59-4.16,7.4l-29.05-22.16c-3.09-.48-4.75,11.06-11.73,1.95l16.12-21h-.02Z"/>
-  <path d="M895.62,746.74c-2.9-2.92-15.79-17.09-17.89-18.06-2.94-1.37-4.88,3.09-7,4.56l-4.48-4.65,17.8-18.39,5.3,5.32-5.47,6.16,24.34,26.13-6.05,6.05c-.48-.11-5.55-6.07-6.56-7.1v-.02Z"/>
-  <path d="M975.95,655.62l-32.73-15.58-4.94,6.41c-3.01.29-6.6-1.35-5.72-4.88,1.39-5.53,8.01-13.37,9.52-19.44,1.83-1.28,6.05.97,7.42,2.61.46,1.93-5.3,5.91-2.42,8.18l31,15.26-2.14,7.44Z"/>
-  <path d="M893.18,700.31c2.35-.63,28.88,24.87,32.9,27.98.9,1.37-3.78,5.82-4.6,6.24-2.29,1.16-28.29-25.06-32.64-27.7-1.58-1.68,3.24-6.22,4.33-6.52h.02Z"/>
-  <path d="M822.51,812.45l-21.19-37.06c-.46-1.3,5.59-4.83,5.99-4.9,2.29-.36,19.42,33.61,22.49,37.61.27,1.77-6.79,4.71-7.27,4.35h-.02Z"/>
-  <polygon class="st0" points="408.03 734.89 404.58 741.76 399.37 748.93 394.85 744.39 408.03 734.89"/>
-  <path d="M853.49,683.41c-43.39,45.66-103.69,77.86-166.16,87.68-103.84,16.31-208.06-23.71-273.93-104.7l.44-2.88,37.54-15.3,1.22,1.22-9.06,21.9c1.16.17,2.23-.13,3.34-.38,19.3-4.33,29.03-13.35,42.9-26.44,3.11-2.94,5.99-6.14,9.06-9.1.36-1.95-.9-1.03-2.08-1.2-1.35-.19-10.32-1.26-10.32-2.12l14.04-32.58-93.01,57.68c-1.22.19-5.26-5.11-5.26-6.1,0-1.56,10.47-7.67,12.51-9,28.67-18.64,58.42-35.71,87.42-53.81l3.07.27c7.25,3.95,14.34,8.45,21.69,12.19,1.45.74,5.23,3.17,6.6,2.5l44.35-37.44c12.42,1.24,20.16-9.27,29.22-16.19,11.2-8.53,22.43-17.13,34.03-25.12l50.15,39.01,36.51,23.42c9.9-2.56,22.18-9.29,31.89-11.01,1.2-.21,2.29-.69,3.53-.19,36.62,28.38,77.52,50.45,115.38,77.04-7.69,10.41-16.06,21.13-25.08,30.63v.02ZM638.35,537.61c-.59-.65-3.3,1.62-4.04,2.14-6.24,4.44-28.61,20.26-32.29,24.89-3.49,4.37-9.08,23.65-12.21,30.48-1.32,2.86-2.77,6.01-4.69,8.51-2.92-8.34-3.64-17.61-6.16-26.04-.27-.92.55-1.47-1.24-1.2l-37.56,31.78h20.62l-73.47,85.43,96.34-38.68,1.77,1.24c.69,4.71.67,10.15,1.81,14.71.23.97-.63,1.51,1.2,1.22,11.35-6.79,25.81-11.27,36.68-18.62,4.65-3.15,10.68-9.12,14.95-13.12,5.26-4.92,10.05-10.34,15.28-15.28l-23.23-17.11-23.42,6.39,26.86-48.66,2.84-28.1-.04.02ZM759.7,584.66l-32.75,11.37-10.62-5.59-1.22,1.22,17.8,24.34-.97,9.1,33.49,23.92c-1.26-5.89-1.43-14.15-3.03-19.67-1.18-4.08-8.91-12.11-9.35-16.31l6.6-28.4.04.02Z"/>
-  <path d="M809.16,597.81c-.97.69-6.81-2.1-6.58-3.62,11.43-19.84,19.74-41.75,23.04-64.53,20.12-139.45-113.76-241.48-244.86-199.46-105.14,33.7-156.68,150.99-108.21,251.46,1.35,2.8,5.84,8.98,6.37,11.06.53,2.08-4.16,7.36-7.17,2.96-29.55-43.09-30.79-113.91-12.32-161.48,59.87-154.12,286.21-162.07,356.99-13.14,26.86,56.52,24.28,122.69-7.23,176.76l-.02-.02Z"/>
-  <path d="M767.18,570.53c19.67-36.11,23.04-77.77,8.81-116.51-29.91-81.43-128.73-114.83-204.53-74.52-79.29,42.17-99.07,145.99-40.42,214.22-1.41.29-2.4-.4-3.57-.97-9.86-4.65-12.74-7.42-18.04-16.65-40.74-70.9-16.33-160.07,54.06-200.47,85.97-49.31,199.88-6.03,224.2,91.42,8.7,34.91,4.5,76.39-15.2,106.68l-5.32-3.24v.04Z"/>
-  <path d="M661.05,223.09c23.08,2.73,25.16,31.72,7.84,42.92,14.78,4.94,9.04,22.16,10.78,33.38.48,3.11,3.3,4.75,3.26,7.9h-20.22c-4.16,0-2.52-21.84-2.88-25.18-1.16-10.41-8.81-9.84-17.34-9.5l-.82,34.68h-18.98v-84.21c12.13,1.05,26.53-1.41,38.38,0h-.02ZM642.47,238.35v19.82c.63.95.78.84,1.7.88,8.16.27,16.16-.44,16.29-10.78.13-10.34-8.28-11.1-16.65-10.95l-1.35,1.03Z"/>
-  <path d="M557.46,572.28c-3.51-5.61-8.03-10.51-11.41-16.25-52.09-88.52,40.88-188.61,135.2-152.54,69.74,26.67,91.77,115.82,40.44,170.92h-1.62l-4.96-4.18c36.13-35.69,36.55-94.21,3.3-132.09-34.45-39.24-94.7-45.89-137.32-15.91-47.38,33.32-56.8,101.11-17.95,144.83.21,1.18-4.69,5.95-5.7,5.26l.02-.02Z"/>
-  <path d="M558.28,252.81c-.11-6.01-.32-15.45-7.9-16.46-5-.67-7.65.55-9.59,5.15-3.32,7.88-2.77,34.73-1.3,43.72,1.95,11.86,15.93,11.92,17.74,0,.32-2.08-.25-10.34.69-11.01,3.11-1.74,6.26-.06,9.02-.08,1.6,0,10.32-1.39,10.32.59v12.38c0,.92-2.75,8.45-3.45,9.75-9.14,17.53-45.74,16.52-52.72-3.93-3.89-11.39-3.99-46.16.69-57.17,7.99-18.77,42.92-20.35,52.02-2.98,2.63,5,5.11,15.24,2.21,20.07h-17.74v-.02Z"/>
-  <path d="M521.12,309.75c.44,2.23-.59,1.41-1.64,2.06-4.96,2.98-10.09,5.84-14.8,9.16-94.02,66.15-121.6,195.84-62.07,294.77l-5.99,4.29c-1.66-.32-11.39-20.39-12.78-23.54-42.69-96.1-15.72-212.05,68.48-275.51,1.98-1.49,15.03-11.22,16.02-11.22h12.8-.02Z"/>
-  <path d="M782.4,315.53c.88.23,12.68,9.65,14.46,11.14,27.6,23.08,51.56,56.1,64.76,89.61,26.11,66.26,20.56,145.04-17.32,205.54l-6.03-4.54c7.92-13.03,14.67-26.82,19.67-41.26,22.79-65.77,13.98-139.68-24.59-197.51-16.88-25.29-39.03-45.53-63.75-62.96,3.55.59,9.65-.82,12.8,0v-.02Z"/>
-  <path d="M632.4,439.62c61.93-6.31,98.9,63.65,54.67,108.34l-5.76-4.1c32.18-29.18,19-81.81-21.67-94.8-58.08-18.56-104.28,51.54-59.28,94.76l-5.76,4.18c-20.81-19.07-25.1-50.66-11.71-75.32,9.29-17.09,30-31.07,49.5-33.04v-.02Z"/>
-  <path d="M726.68,223.09h19.4c2.02,0,.67,4.56.67,5.72.11,15.01.08,30.14.04,45.17-.02,9.46,1.64,21.21.55,30.46-.15,1.2-.11,2.12-1.28,2.84h-18.16l-1.24-1.24v-82.97l.02.02Z"/>
-  <path d="M636.48,486.6c20.18-4.12,28.5,22.79,11.29,30.27-15.51,6.75-30.16-11.33-19.65-24.59,1.81-2.27,5.53-5.09,8.37-5.68h0Z"/>
-  <polygon points="607.81 288.29 607.81 307.3 590.07 307.3 588.83 306.05 588.83 288.29 607.81 288.29"/>
-  <polygon points="778.68 288.29 778.68 306.05 777.44 307.3 760.52 307.3 760.52 288.29 778.68 288.29"/>
-  <polygon points="711.82 288.29 711.82 307.3 694.89 307.3 693.65 306.05 693.65 289.53 694.89 288.29 711.82 288.29"/>
-                        </svg>
+            {/* ==========================================
+                CINEMATIC TITLE SEQUENCE
+                Three cards over the live map: CRI ident -> game logo -> title card.
+                Backdrop opacity steps down each card so the city fades up underneath.
+                ========================================== */}
+            {bootPhase < 2 && hackerColdDropPhase === 0 && (
+                <div className="fixed inset-0 z-[9999] pointer-events-none">
+                    {/* Letterbox bars */}
+                    <div className="absolute top-0 left-0 right-0 bg-black z-20 letterbox-top" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-black z-20 letterbox-bottom" />
+
+                    {/* BOOT 0: CRI IDENT — opens on solid black like a studio card */}
+                    <div className={`absolute inset-0 flex flex-col items-center justify-center p-6 transition-all duration-1000 ${bootPhase === 0 ? 'opacity-100' : 'opacity-0'}`}
+                         style={{ background: '#020617' }}>
+                        <div className="fade-in-seq-1 mb-8">
+                            <CRILogo className="w-48 h-48 md:w-64 md:h-64 text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]" />
+                        </div>
+                        <h1 className="fade-in-seq-2 text-2xl md:text-3xl font-sans font-black text-white tracking-[0.2em] text-center mt-4">WE ARE HERE TO HELP</h1>
                     </div>
-                    <h1 className="fade-in-seq-2 text-2xl md:text-3xl font-sans font-black text-white tracking-[0.2em] text-center mt-4">WE ARE HERE TO HELP</h1>
+
+                    {/* BOOT 1: GAME LOGO — city starts bleeding through */}
+                    <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-1000 ${bootPhase === 1 ? 'opacity-100' : 'opacity-0'}`}
+                         style={{ background: 'radial-gradient(ellipse at center, rgba(2,6,23,0.72) 0%, rgba(2,6,23,0.94) 70%)', backdropFilter: 'blur(3px)' }}>
+                        <h1 className="text-4xl md:text-6xl text-center px-4 jarring-text mb-12">TIMELINE<br/>PROTOCOL</h1>
+                        <Icons.Activity size={80} className="text-cyan-500 mt-8 animate-pulse" />
+                    </div>
+
+                    {/* BOOT 1.5: TITLE CARD — three lines, heavy sans, yellow */}
+                    <div className={`absolute inset-0 flex flex-col items-center justify-center px-6 transition-all duration-1000 ${bootPhase === 1.5 ? 'opacity-100' : 'opacity-0'}`}
+                         style={{ background: 'radial-gradient(ellipse at center, rgba(2,6,23,0.55) 0%, rgba(2,6,23,0.9) 75%)', backdropFilter: 'blur(2px)' }}>
+                        <h1 className="title-card text-yellow-400 text-center">
+                            <span className="block">FAILED</span>
+                            <span className="block">FLIGHT</span>
+                            <span className="block">PLAN</span>
+                        </h1>
+                        <p className="mt-8 text-[10px] md:text-xs font-mono text-yellow-600/80 uppercase tracking-[0.4em] text-center">
+                            Seattle &nbsp;//&nbsp; Sector 305
+                        </p>
+                    </div>
                 </div>
             )}
 
-            {/* BOOT SEQUENCE 1: TIMELINE PROTOCOL */}
-            {bootPhase === 1 && (
-                <div className="fixed inset-0 bg-[#020617] z-[9999] flex flex-col items-center justify-center fade-in">
-                    <h1 className="text-4xl md:text-6xl text-center px-4 jarring-text mb-12">TIMELINE<br/>PROTOCOL</h1>
-                    <Icons.Activity size={80} className="text-cyan-500 mt-8 animate-pulse" />
+            {/* BOOT SEQUENCE 2: THE CHOICE MENU */}
+            {bootPhase === 2 && hackerColdDropPhase === 0 && !showSandbox && (
+                <div className="fixed inset-0 bg-[#020617]/95 z-[9000] flex items-center justify-center p-4 backdrop-blur-xl fade-in">
+                    <div className="glass-panel w-full max-w-lg p-8 rounded-lg shadow-[0_0_50px_rgba(6,182,212,0.1)] flex flex-col gap-6 text-center">
+                        <h2 className="text-2xl font-black text-white tracking-widest flex items-center justify-center gap-2">
+                            <Icons.Activity className="text-cyan-500" /> SYSTEM ACCESS
+                        </h2>
+                        <p className="text-xs text-gray-400 font-mono">Select your protocol.</p>
+                        
+                        <button onClick={() => setBootPhase(2.5)} className="w-full py-4 bg-cyan-950/30 border border-cyan-500 text-cyan-400 font-bold uppercase tracking-widest text-xs transition-colors hover:bg-cyan-900 rounded">
+                            1. ENTER THE TIMELINE PROTOCOL (ARG)
+                        </button>
+                        
+                        <button onClick={() => setShowSandbox(true)} className="w-full py-4 bg-[#00ff41]/20 border border-[#00ff41] text-[#00ff41] font-bold uppercase tracking-widest text-xs transition-colors hover:bg-[#00ff41] hover:text-black rounded flex items-center justify-center gap-2">
+                            <Icons.AlertTriangle size={14} className="animate-pulse" />
+                            2. SANDBOX &mdash; ANOMALY DETECTED
+                        </button>
+                    </div>
                 </div>
             )}
 
-            {/* BOOT SEQUENCE 2: PLAYER MANUAL */}
-            {bootPhase === 2 && (
+            {/* THE SANDBOX / ANOMALY PAGE */}
+            {showSandbox && (
+                <div className="fixed inset-0 bg-[#020617]/95 z-[9500] flex items-center justify-center p-4 backdrop-blur-xl fade-in">
+                    <div className="glass-panel w-full max-w-lg p-6 rounded-lg shadow-[0_0_50px_rgba(0,255,65,0.1)] flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between items-start mb-4 border-b border-[#00ff41]/30 pb-4 shrink-0">
+                            <div>
+                                <h2 className="text-xl font-black text-[#00ff41] tracking-widest flex items-center gap-2">
+                                    <Icons.AlertTriangle size={18} className="animate-pulse" /> ANOMALY DETECTED
+                                </h2>
+                                <p className="text-[10px] font-mono text-[#00ff41]/60 mt-1 tracking-widest uppercase">
+                                    SECTOR: THE SANDBOX &nbsp;//&nbsp; EVENT: BOB LOVES DOORS 3
+                                </p>
+                            </div>
+                            <button onClick={() => setShowSandbox(false)} className="text-[#00ff41] hover:text-white transition-colors p-2"><Icons.X /></button>
+                        </div>
+
+                        <div className="overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                            <p className="text-xs text-gray-300 font-mono text-center leading-relaxed">
+                                Live music. Two Temporal Artists. Rewards.<br/>
+                                <span className="text-[#00ff41]">Sustained resonance event in progress. Head directly to The Sandbox.</span>
+                            </p>
+
+                            <div className="bg-[#00ff41]/10 border border-[#00ff41]/50 p-3 rounded text-center">
+                                <p className="text-[10px] font-mono text-[#00ff41] uppercase tracking-widest leading-relaxed">
+                                    See a sticker marked &ldquo;ANOMALY DETECTED&rdquo;? Tap it with your phone &mdash; or scan it under MANUAL SCAN &mdash; to decrypt hidden CRI files.
+                                </p>
+                            </div>
+
+                            <a href={STRIPE_LINK} target="_blank" rel="noopener noreferrer" className="block w-full text-center py-3 mb-6 border-2 border-[#00ff41] text-black bg-[#00ff41] hover:bg-black hover:text-[#00ff41] font-black font-mono text-xs uppercase transition-colors shadow-[0_0_15px_rgba(0,255,65,0.5)] rounded">
+                                DONATE TO THE CATALYST (Suggested $20)
+                            </a>
+
+                            {/* TEMPORAL ARTISTS */}
+                            <div className="space-y-3">
+                                <h3 className="text-xs font-black text-cyan-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Icons.Brush size={14} /> TEMPORAL ARTISTS
+                                </h3>
+
+                                {TEMPORAL_ARTISTS.map(artist => {
+                                    const unlocked = isArtistUnlocked(artist.id);
+                                    return (
+                                        <div key={artist.id} className="bg-black/50 p-4 rounded border" style={{ borderColor: `${artist.color}55` }}>
+                                            <div className="flex justify-between items-start gap-3 mb-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-[9px] font-mono uppercase tracking-widest mb-1" style={{ color: artist.color }}>{artist.id}</p>
+                                                    <p className="text-base font-bold text-white leading-tight truncate">{artist.name}</p>
+                                                    <p className="text-[10px] font-mono mt-1 uppercase tracking-widest" style={{ color: artist.color }}>
+                                                        {unlocked ? artist.alias : 'STATUS: CLASSIFIED'}
+                                                    </p>
+                                                </div>
+                                                {unlocked
+                                                    ? <Icons.Unlock size={16} className="shrink-0 mt-1" style={{ color: artist.color }} />
+                                                    : <Icons.Lock size={16} className="text-gray-600 shrink-0 mt-1" />}
+                                            </div>
+
+                                            <div className="flex flex-wrap gap-2 mb-3">
+                                                <a href={artist.instagram} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono px-3 py-2 rounded border border-white/15 text-gray-300 hover:text-white hover:border-white/40 transition-colors">
+                                                    {artist.instagramHandle}
+                                                </a>
+                                                {artist.website && (
+                                                    <a href={artist.website} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono px-3 py-2 rounded border border-white/15 text-gray-300 hover:text-white hover:border-white/40 transition-colors">
+                                                        WEBSITE
+                                                    </a>
+                                                )}
+                                            </div>
+
+                                            {unlocked ? (
+                                                <button onClick={() => setActiveArtist(artist)} className="w-full py-3 rounded border font-mono text-[10px] font-bold uppercase tracking-widest transition-colors" style={{ borderColor: artist.color, color: artist.color }}>
+                                                    [ OPEN DOSSIER ]
+                                                </button>
+                                            ) : (
+                                                <div className="w-full py-3 rounded border border-red-500/30 bg-red-900/15 text-center">
+                                                    <p className="text-[10px] font-mono text-red-400 uppercase tracking-widest">[ DOSSIER ENCRYPTED ]</p>
+                                                    <p className="text-[9px] font-mono text-gray-600 mt-1">SCAN THE ARTIST&rsquo;S CRI TAG TO DECRYPT</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* RESTRICTED ZONE */}
+                            <button
+                                onClick={() => { playGlitchSound(); setShowRupture(true); }}
+                                className="w-full text-left bg-red-950/30 border border-red-500/60 hover:bg-red-900/40 hover:border-red-500 transition-colors p-4 rounded"
+                            >
+                                <p className="text-xs font-black text-red-500 uppercase tracking-widest flex items-center gap-2 mb-1">
+                                    <Icons.Radiation size={14} className="animate-pulse" /> RESTRICTED ZONE &mdash; BACK ROOM
+                                </p>
+                                <p className="text-[10px] font-mono text-red-300 leading-relaxed">
+                                    WARNING: TEMPORAL RUPTURE. NO UNAUTHORIZED PERSONNEL BEYOND THIS POINT.
+                                </p>
+                                <p className="text-[9px] font-mono text-red-700 uppercase tracking-widest mt-2">
+                                    [ TAP FOR CRI ADVISORY ]
+                                </p>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TEMPORAL ARTIST DOSSIER */}
+            {activeArtist && (
+                <div className="fixed inset-0 bg-[#020617]/95 z-[9700] flex items-center justify-center p-4 backdrop-blur-xl fade-in overflow-y-auto">
+                    <div className="glass-panel w-full max-w-lg p-6 rounded-lg flex flex-col max-h-[90vh] my-auto" style={{ borderColor: activeArtist.color }}>
+                        <div className="flex justify-between items-start gap-3 mb-5 border-b pb-4 shrink-0" style={{ borderColor: `${activeArtist.color}40` }}>
+                            <div className="min-w-0">
+                                <p className="text-[9px] font-mono uppercase tracking-widest" style={{ color: activeArtist.color }}>
+                                    TAG DOSSIER {activeArtist.id} &mdash; DECRYPTED
+                                </p>
+                                <h2 className="text-xl font-black text-white tracking-wide mt-1 truncate">{activeArtist.name}</h2>
+                                <p className="text-xs font-mono mt-1 uppercase tracking-widest" style={{ color: activeArtist.color }}>{activeArtist.alias}</p>
+                            </div>
+                            <button onClick={() => setActiveArtist(null)} className="text-gray-500 hover:text-white transition-colors p-2 shrink-0"><Icons.X /></button>
+                        </div>
+
+                        <div className="overflow-y-auto custom-scrollbar pr-2 space-y-5 text-[12px] font-mono text-gray-300 leading-relaxed">
+                            <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-widest text-gray-500">ROLE</p>
+                                <p className="text-white">{activeArtist.role}</p>
+                                <p className="text-[10px] mt-2" style={{ color: activeArtist.color }}>{activeArtist.affiliation}</p>
+                                {activeArtist.affiliationWarn && (
+                                    <p className="text-[10px] text-red-400 flex items-center gap-1.5">
+                                        <Icons.AlertTriangle size={11} /> {activeArtist.affiliationWarn}
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="space-y-2 border-t border-white/10 pt-4">
+                                <p className="text-[9px] uppercase tracking-widest text-gray-500">FIELD ASSESSMENT</p>
+                                {activeArtist.bio.map((p, i) => <p key={i}>{p}</p>)}
+                            </div>
+
+                            <div className="space-y-2 border-t border-white/10 pt-4">
+                                <p className="text-[9px] uppercase tracking-widest text-gray-500">ESOTERIC TOOL</p>
+                                <p className="text-white font-bold">{activeArtist.tool}</p>
+                                {activeArtist.toolLore.map((p, i) => <p key={i}>{p}</p>)}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                                <a href={activeArtist.instagram} target="_blank" rel="noopener noreferrer" className="flex-1 text-center text-[10px] font-mono py-3 rounded border transition-colors" style={{ borderColor: activeArtist.color, color: activeArtist.color }}>
+                                    {activeArtist.instagramHandle}
+                                </a>
+                                {activeArtist.website && (
+                                    <a href={activeArtist.website} target="_blank" rel="noopener noreferrer" className="flex-1 text-center text-[10px] font-mono py-3 rounded border transition-colors" style={{ borderColor: activeArtist.color, color: activeArtist.color }}>
+                                        WEBSITE
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+
+                        <button onClick={() => setActiveArtist(null)} className="mt-5 shrink-0 w-full py-4 rounded border border-gray-700 bg-black text-gray-400 hover:text-white font-bold uppercase tracking-widest text-xs transition-colors">
+                            CLOSE DOSSIER
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* RESTRICTED ZONE: TEMPORAL RUPTURE ADVISORY */}
+            {showRupture && (
+                <div className="fixed inset-0 z-[9600] rupture-bg flex items-center justify-center p-4 overflow-y-auto fade-in">
+                    <div className="w-full max-w-md border-2 border-red-600 bg-black/95 p-6 md:p-8 shadow-[0_0_50px_rgba(239,68,68,0.35)] my-auto rounded">
+                        <Icons.Radiation size={56} className="text-red-500 mx-auto mb-6 animate-pulse drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]" />
+
+                        <h2 className="text-2xl md:text-3xl font-black text-red-500 text-center leading-tight tracking-widest mb-2 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]">
+                            WARNING<br/>TEMPORAL RUPTURE
+                        </h2>
+                        <p className="text-[11px] font-mono text-red-400 text-center uppercase tracking-widest mb-6 border-y border-red-900/60 py-3">
+                            NO UNAUTHORIZED PERSONNEL<br/>BEYOND THIS POINT
+                        </p>
+
+                        <div className="text-[11px] font-mono text-gray-300 leading-relaxed space-y-2 bg-red-950/20 border border-red-900/50 p-4 rounded">
+                            <p className="text-red-600 uppercase tracking-widest text-[9px]">
+                                // CRI CONTAINMENT NOTICE &mdash; SECTOR 305
+                            </p>
+                            <p>
+                                The rear room of this venue is <span className="text-red-400">sealed</span>. Sustained
+                                exposure to the standing wave has torn a rupture in the local timeline. It has not closed.
+                            </p>
+                            <p>
+                                Field operatives are instructed to observe the boundary and report anomalies. Do not
+                                attempt entry. Do not photograph the interior. Do not respond if something inside
+                                addresses you by name.
+                            </p>
+                            <p className="text-red-500">
+                                The Cascadia Resonance Institute is here to help.
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={() => setShowRupture(false)}
+                            className="mt-6 w-full py-4 border-2 border-red-600 text-red-500 hover:bg-red-600 hover:text-black font-black font-mono text-xs uppercase tracking-widest transition-colors rounded"
+                        >
+                            ACKNOWLEDGE &amp; WITHDRAW
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* BOOT SEQUENCE 2.5: PLAYER MANUAL */}
+            {bootPhase === 2.5 && hackerColdDropPhase === 0 && (
                 <div className="fixed inset-0 bg-[#020617]/95 z-[9000] flex items-center justify-center p-4 backdrop-blur-xl fade-in">
                     <div className="glass-panel w-full max-w-lg p-8 rounded-lg shadow-[0_0_50px_rgba(6,182,212,0.1)] flex flex-col max-h-[90vh]">
                         <h2 className="text-xl font-bold text-cyan-400 uppercase tracking-widest mb-6 border-b border-cyan-900/30 pb-4 flex items-center gap-2">
@@ -572,10 +1073,6 @@ export default function App() {
                         </h2>
                         <div className="overflow-y-auto custom-scrollbar pr-2 space-y-6 text-sm text-gray-300 font-mono leading-relaxed">
                             <p>A temporal anomaly has fractured the city. We need field operatives to map the sector and stabilize the timeline.</p>
-                            <div className="p-4 bg-cyan-900/20 border border-cyan-500/50 rounded shadow-[0_0_15px_rgba(6,182,212,0.2)]">
-                                <strong className="text-[#00ff41] block mb-2 animate-pulse">▲ REQUIRED ACTION ▲</strong>
-                                You must click <strong>SYNC GPS</strong> and allow location permissions to enable the tracking grid.
-                            </div>
                             <ul className="space-y-4">
                                 <li><strong className="text-cyan-400">1. LOCK YOUR PROFILE:</strong> Select your operative profile. This dictates your route.</li>
                                 <li><strong className="text-cyan-400">2. TRACK COORDINATES:</strong> Follow the clues on your Tactical Map. When you get close, your phone’s GPS will automatically decrypt the node.</li>
@@ -590,8 +1087,38 @@ export default function App() {
                 </div>
             )}
 
+            {/* STREET-FIRST HACKER COLD DROP */}
+            {hackerColdDropPhase > 0 && (
+                <div className={`fixed inset-0 z-[9500] hacker-bg flex flex-col items-center justify-center p-6 ${hackerColdDropPhase === 1 ? 'screen-tear' : 'fade-in'}`}>
+                    {hackerColdDropPhase >= 2 && (
+                        <div className="w-full max-w-md border border-[#00ff41] bg-black/90 p-8 shadow-[0_0_30px_rgba(0,255,65,0.2)]">
+                            <Icons.Cpu size={48} className="text-[#00ff41] mb-6 animate-pulse mx-auto text-shadow-glow" />
+                            <TypewriterText 
+                                lines={[
+                                    "[ UNREGISTERED DEVICE DETECTED ]",
+                                    "You bypassed the perimeter check and went straight for the physical data. I like your style. I'm hijacking your scanner.",
+                                    "Bob didn't show up today. CRI is tracking him... We have 14 days to prepare for what comes next.",
+                                    "I am decrypting the tag you just found. Read the file, then select a profile on the map to help me find the rest."
+                                ]} 
+                                onComplete={() => setHackerColdDropPhase(3)} 
+                            />
+                            {hackerColdDropPhase === 3 && (
+                                <button onClick={() => {
+                                    setGameState(prev => ({ ...prev, hackerIntroDone: true, unlockedNodes: [...prev.unlockedNodes, { id: pendingColdDropMedia.id, type: 'MANUAL', lat: pendingColdDropMedia.lat, lng: pendingColdDropMedia.lng }] }));
+                                    setHackerColdDropPhase(0);
+                                    setActiveMedia(pendingColdDropMedia);
+                                    setHasNewVaultItem(true);
+                                }} className="mt-8 fade-in w-full py-4 border border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-bold font-mono text-xs uppercase transition-colors">
+                                    ACCEPT OVERRIDE
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* NORMAL HACKER INTRO HIJACK */}
-            {hackerIntroPhase > 0 && !gameState.hackerIntroDone && bootPhase === 3 && (
+            {hackerIntroPhase > 0 && !gameState.hackerIntroDone && bootPhase === 3 && hackerColdDropPhase === 0 && (
                 <div className={`fixed inset-0 z-[8000] hacker-bg flex flex-col items-center justify-center p-6 ${hackerIntroPhase === 1 ? 'screen-tear' : 'fade-in'}`}>
                     {hackerIntroPhase >= 2 && (
                         <div className="w-full max-w-md border border-[#00ff41] bg-black/90 p-8 shadow-[0_0_30px_rgba(0,255,65,0.2)]">
@@ -600,13 +1127,19 @@ export default function App() {
                                 lines={[
                                     "[ FIREWALL BYPASSED. ]",
                                     "I see you just logged that node for the Cascadia Resonance Institute. Don't trust them. They aren't here to help.",
-                                    "Bob didn't show up today. CRI is using this app to track his resonance trail.",
+                                    "Bob didn't just vanish in 1971. He jumped from Flight 305. CRI is using this app to track his resonance trail.",
                                     "I've hijacked your scanner. Keep walking your vector, but from now on, the data you collect comes to me. Let's find out what CRI is hiding."
                                 ]} 
                                 onComplete={() => setHackerIntroPhase(3)} 
                             />
                             {hackerIntroPhase === 3 && (
-                                <button onClick={() => setGameState(prev => ({ ...prev, hackerIntroDone: true }))} className="mt-8 fade-in w-full py-4 border border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-bold font-mono text-xs uppercase transition-colors">
+                                <button onClick={() => {
+                                    setGameState(prev => ({ ...prev, hackerIntroDone: true }));
+                                    if (pendingInterludeMedia) {
+                                        setActiveMedia(pendingInterludeMedia);
+                                        setHasNewVaultItem(true);
+                                    }
+                                }} className="mt-8 fade-in w-full py-4 border border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-bold font-mono text-xs uppercase transition-colors">
                                     ACCEPT OVERRIDE
                                 </button>
                             )}
@@ -616,7 +1149,7 @@ export default function App() {
             )}
 
             {/* HACKER INTERLUDE (Mid-Game Unlocks) */}
-            {hackerInterludePhase > 0 && (
+            {hackerInterludePhase > 0 && bootPhase >= 2 && (
                 <div className={`fixed inset-0 z-[7000] hacker-bg flex flex-col items-center justify-center p-6 ${hackerInterludePhase === 1 ? 'screen-tear' : 'fade-in'}`}>
                     {hackerInterludePhase >= 2 && (
                         <div className="w-full max-w-md border border-[#00ff41] bg-black/90 p-8 shadow-[0_0_30px_rgba(0,255,65,0.2)]">
@@ -644,7 +1177,7 @@ export default function App() {
             )}
 
             {/* END GAME HACKER HIJACK */}
-            {hackerEndPhase > 0 && gameState.gameComplete && (
+            {hackerEndPhase > 0 && gameState.gameComplete && bootPhase >= 2 && (
                 <div className={`fixed inset-0 z-[6000] hacker-bg flex flex-col items-center justify-center p-6 overflow-y-auto ${hackerEndPhase === 1 ? 'screen-tear' : 'fade-in'}`}>
                     {hackerEndPhase >= 2 && (
                         <div className="w-full max-w-md border border-[#00ff41] bg-black/90 p-8 shadow-[0_0_30px_rgba(0,255,65,0.2)] my-auto">
@@ -656,8 +1189,9 @@ export default function App() {
                                         lines={[
                                             "[ FIREWALL BYPASSED ]",
                                             "We secured the primary nodes, but the grid is massive.",
-                                            "Bob's trajectory is fracturing. He vanishes completely in exactly two weeks.",
-                                            "CRI is closing in. I need a dedicated crew to protect his trail and unlock the rest of the city.",
+                                            "He didn't land here. The timeline is scattering into Belltown.",
+                                            "Last clean ping before the signal died: 2nd Ave, Belltown — near an old DSHS door that shouldn't still be standing. Coordinates are locking on your map now.",
+                                            "CRI is closing in. I need a dedicated crew to protect his trail and unlock the rest of the city before the deadline.",
                                             "If you want to fund the operation and keep this network online, route your support here:"
                                         ]} 
                                         onComplete={() => setHackerEndPhase(3)} 
@@ -667,18 +1201,22 @@ export default function App() {
                                             <a href={STRIPE_LINK} target="_blank" rel="noopener noreferrer" className="block w-full text-center py-3 my-4 border-2 border-[#00ff41] text-black bg-[#00ff41] hover:bg-black hover:text-[#00ff41] font-black font-mono text-sm uppercase transition-colors shadow-[0_0_15px_rgba(0,255,65,0.5)]">
                                                 [ FUND THE OPERATION ]
                                             </a>
-                                            <p className="font-mono text-[#00ff41] text-sm mb-6 text-shadow-glow">
-                                                Hurry. I smuggled some physical gear into Jellyfish, but there are only 20 bags. Enter your operative alias and secure frequency below to join the network and claim your clearance code.
+                                            <p className="font-mono text-[#00ff41] text-sm mb-4 text-shadow-glow">
+                                                The trail doesn't end here. It picks back up Saturday at Belltown Blast — same network, new sector.
                                             </p>
-                                            
-                                            <div className="flex flex-col gap-4 mt-4">
-                                                <a href="YOUR_FORMSPREE_LINK_HERE" target="_blank" rel="noopener noreferrer" className="w-full py-4 bg-[#00ff41]/20 border border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-bold font-mono text-xs uppercase text-center transition-colors">
-                                                    1. OPEN SECURE REGISTRATION FORM
-                                                </a>
-                                                <button onClick={() => setHackerStep(1)} className="w-full py-4 border border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-bold font-mono text-xs uppercase transition-colors">
-                                                    2. I HAVE REGISTERED (REVEAL CODE)
+                                            <a href={`https://www.google.com/maps/dir/?api=1&destination=${BELLTOWN.lat},${BELLTOWN.lng}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center py-4 mb-6 border-2 border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-black font-mono text-sm uppercase transition-colors">
+                                                [ GET DIRECTIONS TO BELLTOWN ]
+                                            </a>
+                                            <p className="font-mono text-[#00ff41] text-sm mb-6 text-shadow-glow">
+                                                Enter your operative alias and secure frequency below to join the network — you'll be the first to know when the Belltown signal goes live.
+                                            </p>
+                                            <form onSubmit={handleTagRegistration} className="flex flex-col gap-3 mt-4">
+                                                <input type="text" value={userAlias} onChange={e=>setUserAlias(e.target.value)} className="w-full p-4 bg-black border border-[#00ff41] text-[#00ff41] font-mono outline-none focus:shadow-[0_0_15px_rgba(0,255,65,0.5)]" placeholder="OPERATIVE ALIAS" />
+                                                <input type="email" value={userEmail} onChange={e=>setUserEmail(e.target.value)} className="w-full p-4 bg-black border border-[#00ff41] text-[#00ff41] font-mono outline-none focus:shadow-[0_0_15px_rgba(0,255,65,0.5)]" placeholder="SECURE FREQUENCY (EMAIL)" />
+                                                <button type="submit" disabled={isTransmitting} className="w-full py-4 bg-[#00ff41]/20 border border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-bold font-mono text-xs uppercase transition-colors disabled:opacity-50">
+                                                    {isTransmitting ? 'TRANSMITTING...' : 'TRANSMIT'}
                                                 </button>
-                                            </div>
+                                            </form>
                                         </div>
                                     )}
                                 </div>
@@ -687,12 +1225,12 @@ export default function App() {
                             {hackerStep === 1 && (
                                 <div className="fade-in text-center">
                                     <p className="font-mono text-[#00ff41] text-sm mb-6 text-shadow-glow">
-                                        Registration confirmed. Your frequency has been added to the secure roster for future drops.<br/><br/>
-                                        Write down this clearance code and present it to a CRI operative at Jellyfish to claim your physical gear.
+                                        Registration confirmed. Your frequency is on the secure roster.<br/><br/>
+                                        The trail picks back up Saturday at Belltown Blast. Same network, new sector.
                                     </p>
-                                    <div className="inline-block bg-[#00ff41] text-black px-6 py-3 text-3xl font-black tracking-[0.2em] mb-6">
-                                        ESO-C4T4-LY57
-                                    </div>
+                                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${BELLTOWN.lat},${BELLTOWN.lng}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center py-4 mb-6 border-2 border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41] hover:text-black font-black font-mono text-sm uppercase transition-colors">
+                                        [ GET DIRECTIONS TO BELLTOWN ]
+                                    </a>
                                     <p className="font-mono text-[#00ff41] text-[10px] animate-pulse">Severing connection...</p>
                                 </div>
                             )}
@@ -701,7 +1239,7 @@ export default function App() {
                 </div>
             )}
 
-            {decrypting && !gameState.gameComplete && (
+            {decrypting && !gameState.gameComplete && bootPhase >= 2 && (
                 <div className="fixed inset-0 bg-[#020617]/90 z-[6000] flex flex-col items-center justify-center p-6 backdrop-blur-lg fade-in">
                     <Icons.Cpu size={48} className="text-cyan-500 mb-6 animate-pulse" />
                     <h2 className="text-xl font-mono text-cyan-400 tracking-[0.3em] mb-8 text-shadow-glow">DECRYPTING ASSET</h2>
@@ -721,64 +1259,15 @@ export default function App() {
                     <p className="text-[9px] text-cyan-600 font-mono mt-1 tracking-widest">FIELD OPERATIVE TERMINAL</p>
                 </div>
                 <div className="flex items-center gap-4">
-                    {trackingState === 'IDLE' ? (
-                        <div className="flex items-center gap-2">
-                            <span className="text-[9px] text-[#00ff41] font-bold animate-pulse hidden md:block">◀ REQUIRED: SYNC GPS</span>
-                            <button onClick={startTracking} className="px-4 py-2 bg-cyan-500/10 border border-cyan-500/50 text-cyan-400 text-[10px] font-bold uppercase rounded hover:bg-cyan-500/20 transition-colors">SYNC GPS</button>
-                        </div>
-                    ) : (
-                        <div className="w-3 h-3 rounded-full bg-cyan-500 shadow-[0_0_10px_#06b6d4] animate-pulse"></div>
-                    )}
                     <button onClick={() => setBootPhase(2)} className="text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-cyan-400 transition-colors border border-gray-800 px-3 py-1.5 rounded">
-                        [ MANUAL ]
+                        [ INFO / SANDBOX ]
                     </button>
                 </div>
             </header>
 
             <main className="flex-1 relative overflow-hidden flex flex-col">
                 
-                <div className={`absolute inset-0 transition-opacity duration-300 flex flex-col ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                    <div className="flex-1 relative w-full border-b border-cyan-900/30">
-                        <div ref={mapRef} className="w-full h-full absolute inset-0 z-10"></div>
-                    </div>
-
-                    <div className="p-4 md:p-6 bg-[#020617] shrink-0 z-[500] shadow-[0_-10px_30px_rgba(0,0,0,0.8)] relative">
-                        <div className="max-w-4xl mx-auto flex flex-col">
-                            {!gameState.selectedPath && (
-                                <div className="fade-in text-center relative">
-                                    <h3 className="text-lg font-black uppercase tracking-widest text-cyan-400 mb-2">SELECT OPERATIVE PROFILE</h3>
-                                    <p className="text-xs text-cyan-700 font-mono mb-4">Choose your assignment. This will lock your trajectory.</p>
-                                    <div className="grid grid-cols-3 gap-2 md:gap-4">
-                                        {['KEY', 'LOCK', 'KNOB'].map(pathKey => {
-                                            const config = NODE_CONFIG[pathKey];
-                                            const isAnimating = animatingSelection === pathKey;
-                                            const isHidden = animatingSelection && animatingSelection !== pathKey;
-                                            return (
-                                                <button key={pathKey} onClick={() => handlePathSelection(pathKey)} disabled={!!animatingSelection} className={`p-3 md:p-4 glass-panel hover:bg-white/5 transition-all duration-500 flex flex-col items-center gap-2 rounded ${isHidden ? 'opacity-0 scale-90' : 'opacity-100'} ${isAnimating ? 'shatter-effect' : ''}`}>
-                                                    <div style={{ color: config.color }} dangerouslySetInnerHTML={{ __html: config.icon }} className="w-10 h-10 drop-shadow-md mb-1" />
-                                                    <span className="text-[14px] font-black uppercase tracking-widest text-white">{pathKey}</span>
-                                                    <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: config.color }}>{config.profile}</span>
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-
-                            {gameState.selectedPath && !gameState.gameComplete && (
-                                <div className="fade-in">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <h3 className="text-[10px] font-bold uppercase tracking-widest text-cyan-500 flex items-center gap-2"><Icons.Activity size={12} className="animate-pulse" /> ACTIVE NODE CLUE [{gameState.currentStepIndex + 1}/4]</h3>
-                                        <span className={`text-[10px] font-mono font-bold ${NODE_CONFIG[gameState.selectedPath].textClass}`}>PROFILE: {NODE_CONFIG[gameState.selectedPath].profile}</span>
-                                    </div>
-                                    <div className="p-4 glass-panel rounded text-sm text-gray-300 font-mono leading-relaxed" dangerouslySetInnerHTML={{ __html: getActiveClue() }}></div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className={`absolute inset-0 bg-[#020617] p-6 transition-opacity duration-300 overflow-y-auto ${activeTab === 'SCANNER' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                <div className={`absolute inset-0 transition-opacity duration-300 flex flex-col ${activeTab === 'SCANNER' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
                     <div className="max-w-md mx-auto mt-10">
                         <div className="glass-panel p-8 rounded-xl text-center shadow-2xl">
                             <Icons.Cpu size={48} className="mx-auto text-cyan-500 mb-6 opacity-80" />
@@ -793,6 +1282,48 @@ export default function App() {
                                     INITIATE DECRYPTION
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className={`absolute inset-0 transition-opacity duration-300 flex flex-col ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                    <div className="flex-1 relative w-full border-b border-cyan-900/30">
+                        <div ref={mapRef} className="w-full h-full absolute inset-0 z-10"></div>
+                    </div>
+
+                    <div className="p-4 md:p-6 bg-[#020617] shrink-0 z-[500] shadow-[0_-10px_30px_rgba(0,0,0,0.8)] relative">
+                        <div className="max-w-4xl mx-auto flex flex-col">
+                            {!gameState.selectedPath && (
+                                <div className="fade-in text-center relative">
+                                    <h3 className="text-lg font-black uppercase tracking-widest text-cyan-400 mb-2">SELECT OPERATIVE PROFILE</h3>
+                                    <p className="text-xs text-cyan-700 font-mono mb-1">Choose your assignment. This will lock your trajectory.</p>
+                                    <p className="tap-hint text-[10px] text-white font-bold uppercase tracking-widest mb-4">👇 Tap one to begin 👇</p>
+                                    <div className="grid grid-cols-3 gap-2 md:gap-4">
+                                        {['MONEY', 'SKETCH', 'EXIT'].map(pathKey => {
+                                            const config = NODE_CONFIG[pathKey];
+                                            const isAnimating = animatingSelection === pathKey;
+                                            const isHidden = animatingSelection && animatingSelection !== pathKey;
+                                            return (
+                                                <button key={pathKey} onClick={() => handlePathSelection(pathKey)} disabled={!!animatingSelection} style={{ '--pulse-color': `${config.color}99` }} className={`p-3 md:p-4 glass-panel hover:bg-white/5 transition-all duration-500 flex flex-col items-center gap-2 rounded ${isHidden ? 'opacity-0 scale-90' : 'opacity-100'} ${isAnimating ? 'shatter-effect' : !animatingSelection ? 'profile-pulse' : ''}`}>
+                                                    <div style={{ color: config.color }} dangerouslySetInnerHTML={{ __html: config.icon }} className="w-10 h-10 drop-shadow-md mb-1" />
+                                                    <span className="text-[14px] font-black uppercase tracking-widest text-white">{pathKey}</span>
+                                                    <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: config.color }}>{config.profile}</span>
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {gameState.selectedPath && !gameState.gameComplete && (
+                                <div className="fade-in">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h3 className="text-[10px] font-bold uppercase tracking-widest text-cyan-500 flex items-center gap-2"><Icons.Activity size={12} className="animate-pulse" /> ACTIVE NODE CLUE [{gameState.currentStepIndex + 1}/3]</h3>
+                                        <span className={`text-[10px] font-mono font-bold ${NODE_CONFIG[gameState.selectedPath].textClass}`}>PROFILE: {NODE_CONFIG[gameState.selectedPath].profile}</span>
+                                    </div>
+                                    <div className="p-4 glass-panel rounded text-sm text-gray-300 font-mono leading-relaxed" dangerouslySetInnerHTML={{ __html: getActiveClue() }}></div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -836,9 +1367,9 @@ export default function App() {
                     </button>
                     <button onClick={() => setActiveTab('SCANNER')} className={`flex-1 py-4 flex flex-col items-center gap-1 transition-colors ${activeTab === 'SCANNER' ? 'text-cyan-400' : 'text-gray-500 hover:text-gray-300'}`}>
                         <Icons.Activity size={20} />
-                        <span className="text-[9px] font-bold uppercase tracking-widest">SCANNER</span>
+                        <span className="text-[9px] font-bold uppercase tracking-widest">MANUAL SCAN</span>
                     </button>
-                    <button onClick={() => { setActiveTab('VAULT'); setHasNewVaultItem(false); }} className={`flex-1 py-4 flex flex-col items-center gap-1 transition-colors ${activeTab === 'VAULT' ? 'text-cyan-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                    <button data-vault-tab onClick={() => { setActiveTab('VAULT'); setHasNewVaultItem(false); }} className={`flex-1 py-4 flex flex-col items-center gap-1 transition-colors ${activeTab === 'VAULT' ? 'text-cyan-400' : 'text-gray-500 hover:text-gray-300'}`}>
                         <div className="relative">
                             <Icons.Database size={20} />
                             {hasNewVaultItem && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#00ff41] rounded-full animate-pulse"></span>}
@@ -847,6 +1378,103 @@ export default function App() {
                     </button>
                 </div>
             </nav>
+
+            {/* ==========================================
+                DEV HARNESS — add ?debug=1 to the URL to show this.
+                Players never see it. Safe to leave in the shipped build.
+                ========================================== */}
+            {debugMode && (
+                <div className="fixed bottom-2 right-2 z-[99999] font-mono text-[10px] max-w-[280px]">
+                    {!debugOpen ? (
+                        <button onClick={() => setDebugOpen(true)} className="bg-fuchsia-600 text-white px-3 py-2 rounded font-bold shadow-lg">
+                            DEV
+                        </button>
+                    ) : (
+                        <div className="bg-black/95 border-2 border-fuchsia-500 rounded p-3 shadow-2xl space-y-3 max-h-[80vh] overflow-y-auto">
+                            <div className="flex justify-between items-center border-b border-fuchsia-800 pb-2">
+                                <span className="text-fuchsia-400 font-bold tracking-widest">DEV HARNESS</span>
+                                <button onClick={() => setDebugOpen(false)} className="text-fuchsia-400 px-2">&times;</button>
+                            </div>
+
+                            {/* LIVE STATE */}
+                            <div className="text-gray-400 space-y-0.5">
+                                <div>boot: <span className="text-white">{String(bootPhase)}</span> &nbsp; tab: <span className="text-white">{activeTab}</span></div>
+                                <div>path: <span className="text-white">{gameState.selectedPath || 'none'}</span> &nbsp; step: <span className="text-white">{gameState.currentStepIndex}</span></div>
+                                <div>unlocked: <span className="text-white">{gameState.unlockedNodes.length}</span> &nbsp; complete: <span className="text-white">{String(gameState.gameComplete)}</span></div>
+                                <div className={getAllItems().length === 0 ? 'text-red-400 font-bold' : 'text-gray-400'}>
+                                    firestore: <span className="text-white">{artifactsDb.length}a / {ideasDb.length}i / {journalsDb.length}j</span>
+                                    {getAllItems().length === 0 && <div className="text-red-400">NO DATA — check firebase.js appId</div>}
+                                </div>
+                                <div>matrix: <span className="text-white">{(matrixDb.nodes || []).length} nodes</span></div>
+                            </div>
+
+                            {/* WHAT THE KEYWORD MATCHER RESOLVED TO */}
+                            <div className="border-t border-fuchsia-900 pt-2">
+                                <div className="text-fuchsia-400 mb-1">NODE RESOLUTION</div>
+                                {['MONEY', 'SKETCH', 'EXIT'].map(t => {
+                                    const hit = getArtifactForType(t);
+                                    return (
+                                        <div key={t} className="truncate">
+                                            <span className="text-gray-500">{t}:</span>{' '}
+                                            <span className={hit ? 'text-green-400' : 'text-red-400'}>
+                                                {hit ? (hit.title || hit.name) : 'NO MATCH'}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* SCREEN JUMPS */}
+                            <div className="border-t border-fuchsia-900 pt-2 space-y-1">
+                                <div className="text-fuchsia-400 mb-1">JUMP TO SCREEN</div>
+                                <button onClick={() => { setBootPhase(0); setTimeout(() => setBootPhase(1), 3500); setTimeout(() => setBootPhase(1.5), 6500); setTimeout(() => setBootPhase(2), 9500); }} className="w-full text-left px-2 py-1.5 bg-fuchsia-950 border border-fuchsia-800 rounded hover:bg-fuchsia-900">replay title sequence</button>
+                                <div className="grid grid-cols-3 gap-1">
+                                    <button onClick={() => setBootPhase(0)} className="px-1 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">CRI</button>
+                                    <button onClick={() => setBootPhase(1)} className="px-1 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">logo</button>
+                                    <button onClick={() => setBootPhase(1.5)} className="px-1 py-1.5 bg-yellow-950 border border-yellow-700 text-yellow-400 rounded hover:bg-yellow-900">title</button>
+                                </div>
+                                <button onClick={() => setBootPhase(2)} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">menu (system access)</button>
+                                <button onClick={() => setBootPhase(2.5)} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">field manual</button>
+                                <button onClick={() => { setBootPhase(3); setShowSandbox(false); }} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">skip to game</button>
+                            </div>
+
+                            {/* SANDBOX CONTENT */}
+                            <div className="border-t border-fuchsia-900 pt-2 space-y-1">
+                                <div className="text-fuchsia-400 mb-1">SANDBOX</div>
+                                <button onClick={() => { setBootPhase(2); setShowSandbox(true); }} className="w-full text-left px-2 py-1.5 bg-green-950 border border-green-800 text-green-400 rounded hover:bg-green-900">open anomaly page</button>
+                                <button onClick={() => setShowRupture(true)} className="w-full text-left px-2 py-1.5 bg-red-950 border border-red-800 text-red-400 rounded hover:bg-red-900">temporal rupture screen</button>
+                                {TEMPORAL_ARTISTS.map(a => (
+                                    <div key={a.id} className="flex gap-1">
+                                        <button onClick={() => setActiveArtist(a)} className="flex-1 text-left px-2 py-1.5 bg-cyan-950 border border-cyan-800 text-cyan-400 rounded hover:bg-cyan-900 truncate">
+                                            {a.name.split(' ')[0]} dossier
+                                        </button>
+                                        <button
+                                            onClick={() => setGameState(prev => ({
+                                                ...prev,
+                                                unlockedArtists: isArtistUnlocked(a.id)
+                                                    ? (prev.unlockedArtists || []).filter(x => x !== a.id)
+                                                    : [...(prev.unlockedArtists || []), a.id]
+                                            }))}
+                                            className="px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800"
+                                            title="toggle lock"
+                                        >
+                                            {isArtistUnlocked(a.id) ? '🔓' : '🔒'}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* GAME STATE */}
+                            <div className="border-t border-fuchsia-900 pt-2 space-y-1">
+                                <div className="text-fuchsia-400 mb-1">GAME STATE</div>
+                                <button onClick={() => processScan('TAG-NIGHTMARE-OVERRIDE')} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">force-unlock current node</button>
+                                <button onClick={() => processScan('TAG-ENDGAME-OVERRIDE')} className="w-full text-left px-2 py-1.5 bg-gray-900 border border-gray-700 rounded hover:bg-gray-800">jump to endgame</button>
+                                <button onClick={handleReset} className="w-full text-left px-2 py-1.5 bg-red-950 border border-red-800 text-red-400 rounded hover:bg-red-900">purge memory + reload</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

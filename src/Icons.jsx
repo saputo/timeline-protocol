@@ -11,5 +11,8 @@ export const Icons = {
   Key: LucideIcons.Key,
   CircleDot: LucideIcons.CircleDot,
   Database: LucideIcons.Database,
-  Network: LucideIcons.Network
+  Network: LucideIcons.Network,
+  AlertTriangle: LucideIcons.AlertTriangle,
+  Radiation: LucideIcons.Radiation,
+  Brush: LucideIcons.Brush
 };
