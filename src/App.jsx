@@ -253,7 +253,7 @@ const STATIC_LORE_NODES = [
         code: 'SUBJECT-89',
         title: 'Internal Memo: Subject 89',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
-        text: "[ CRI INTERNAL MEMO — AUTHOR REDACTED ]<br/><br/>Confirms the 'Bigfoot' phenomenon is a species of phase-shifting entity using a high-frequency Masking Hum to stay invisible to the human Filter. Designation: Subject 89. Status, as of this filing: contained.<br/><br/>Status, as of tonight: see Incident Report, Subject 89 Escape.",
+        text: "[ CRI INTERNAL MEMO — AUTHOR REDACTED ]<br/><br/>Confirms the 'Bigfoot' phenomenon is a species of phase-shifting entity using a high-frequency Masking Hum to stay invisible to the human Filter. Designation: Subject 89. Status, as of this filing: contained.<br/><br/>Status, as of tonight: unconfirmed. CRI has stopped answering questions about it.",
         artistNotes: "They had a name for it before they ever had it in a cage. 'Subject 89.' Like it was already just a number to them.\n\nBob didn't just open a door for it. He gave it back its name."
     }
 ];
@@ -300,20 +300,20 @@ const STATIC_MAIN_NODES = {
     DETECTIVE: {
         id: 'static-boaz-smash',
         code: 'BOAZ-SMASH',
-        title: 'CRI Incident Report: Subject 89 Escape',
+        title: 'CRI Surveillance File: Subject Redacted',
         lat: SHORTYS.lat, lng: SHORTYS.lng,
-        desc: "Shorty's Coney Island, 2316 2nd Ave. Piece together what happened the night containment failed. Look for a door that shouldn't still be glowing.",
-        text: "CRITICAL FAILURE. Containment grid shattered via brute-force Boaz impact — the same Twin Pillar mechanics CRI catalogued as Anchor and Siphon, turned back on the facility that built them. Acoustic static generators (-440.01 Hz) destroyed. Subject 89 has phased through the Z-Axis into the timberland. Unidentified operative escaped through the iron door left glowing white at the point of impact.",
-        artistNotes: "He actually did it. Bob used the Black Stone to smash CRI's own machine and free what they had chained up down there.\n\nHe isn't just a pawn anymore. CRI is hunting him for it."
+        desc: "Shorty's Coney Island, 2316 2nd Ave. Find the portrait CRI didn't want painted. His face is gone — they couldn't redact everything.",
+        text: "[ CRI SURVEILLANCE FILE — FACE REDACTED PER PROTOCOL 12 ]<br/><br/>Standard procedure: any image of an unauthorized temporal subject gets the face stripped before filing. This one didn't stay stripped. Someone repainted around the redaction — left the jacket, the build, the posture. Enough to know him, if you already do.<br/><br/>CRI's own paperwork won't say the name. Somewhere in this city, somebody still will.",
+        artistNotes: "They blacked out his face and called it handled. It isn't. Every other file in this city dances around the same blank space — follow enough of them and the shape underneath starts to matter more than the face ever would."
     },
     VIGILANTE: {
         id: 'static-tag-signal',
         code: 'TAG-SIGNAL',
-        title: 'TAG Field Note: The Shielded Rooms',
+        title: 'Field Note: The Ballast Count',
         lat: JUPITER_BAR.lat, lng: JUPITER_BAR.lng,
-        desc: "Jupiter Bar, 2126 2nd Ave. Find the artists working live tonight. Whatever they're painting is hiding something CRI can't see.",
-        text: "[ INTERCEPTED — TEMPORAL ARTISTS GUILD ]<br/><br/>Every wall these artists paint doubles as cover. The right pigment, laid down live in front of a crowd, reads as a dead zone to CRI's scanners.<br/><br/>They're not just decorating the block. Room by room, door by door, they're building the one network CRI can't see into. This bar has always been the real TAG headquarters.",
-        artistNotes: "This is the actual point of tonight. Every artist working this block is quietly making it harder for CRI to track anyone in this room.\n\nWatch them work. Buy something if you can. That's the real resistance."
+        desc: "Jupiter Bar, 2126 2nd Ave. Find the money. Not currency — cargo. Somebody weighed it to the ounce.",
+        text: "[ CRI FIELD NOTE — 2ND AVE RECOVERY ]<br/><br/>$200,000 in ransom bills, never spent, barely even wanted. What mattered was the weight: 21 pounds exactly, strapped tight to a body mid-fall.<br/><br/>Ballast isn't a metaphor here. It's the only reason a jump like that holds together long enough to land anywhere at all.",
+        artistNotes: "Everyone still calls this a robbery. It was a weights-and-measures problem. Twenty-one pounds, no more, no less — that's not a ransom note, that's an engineering spec."
     }
 };
 
@@ -1412,11 +1412,11 @@ export default function App() {
                 </div>
 
                 <div className={`absolute inset-0 transition-opacity duration-300 flex flex-col ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                    <div className="flex-1 relative w-full border-b border-cyan-900/30">
+                    <div className="flex-1 min-h-[30vh] relative w-full border-b border-cyan-900/30">
                         <div ref={mapRef} className="w-full h-full absolute inset-0 z-10"></div>
                     </div>
 
-                    <div className="p-4 md:p-6 bg-[#020617] shrink-0 z-[500] shadow-[0_-10px_30px_rgba(0,0,0,0.8)] relative">
+                    <div className="p-4 md:p-6 bg-[#020617] shrink-0 max-h-[45vh] overflow-y-auto custom-scrollbar z-[500] shadow-[0_-10px_30px_rgba(0,0,0,0.8)] relative">
                         <div className="max-w-4xl mx-auto flex flex-col">
                             {!gameState.selectedPath && (
                                 <div className="fade-in text-center relative">
