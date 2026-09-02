@@ -14,5 +14,7 @@ export const Icons = {
   Network: LucideIcons.Network,
   AlertTriangle: LucideIcons.AlertTriangle,
   Radiation: LucideIcons.Radiation,
-  Brush: LucideIcons.Brush
+  Brush: LucideIcons.Brush,
+  Volume2: LucideIcons.Volume2,
+  VolumeX: LucideIcons.VolumeX
 };

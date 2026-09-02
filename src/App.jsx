@@ -9,7 +9,15 @@ import { CRILogo } from './CRILogo';
 // ==========================================
 // AUDIO ENGINE: DIGITAL SCREECH
 // ==========================================
+// Set by useAmbientResonance's mute toggle -- playGlitchSound lives outside
+// React (called from plain functions, not just components) so it checks
+// this module-level flag rather than a prop, but it means ONE mute switch
+// silences both the one-shot stings and the ambient layers instead of only
+// half of what's actually playing.
+let audioMuted = false;
+
 const playGlitchSound = () => {
+    if (audioMuted) return;
     try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         const ctx = new AudioContext();
@@ -26,6 +34,174 @@ const playGlitchSound = () => {
         osc.stop(ctx.currentTime + 0.4);
     } catch (e) { console.warn("Audio blocked."); }
 };
+
+// ==========================================
+// AMBIENT RESONANCE LAYER SYSTEM (prototype)
+// A quiet, additive drone: each of the 3 main node types (GUARDIAN /
+// DETECTIVE / VIGILANTE) owns one sustained harmonic layer that fades in
+// the moment it's found, in whatever order they're found. Bonus/lore finds
+// nudge a brief detune flutter across whatever's already playing instead of
+// adding new pitches, so it never gets cluttered even at all 14 items.
+// Full completion resolves the power chord into a full triad -- major
+// (brighter) for CRI, minor (moodier) for HACKER.
+//
+// Entirely synthesized, same approach as playGlitchSound -- no audio
+// files, no loading. Ties into the game's own "resonance research" fiction
+// instead of being a bolted-on jingle.
+//
+// Off by default is the *safer* choice for a loud live show where people
+// may have sound off out of courtesy -- this currently defaults ON to make
+// testing easier. Flip DEFAULT_SOUND_ENABLED to false before shipping live.
+// ==========================================
+const DEFAULT_SOUND_ENABLED = true;
+const RESONANCE_LAYERS = {
+    GUARDIAN:  { freq: 110.00, type: 'sine' },     // A2 -- root
+    DETECTIVE: { freq: 164.81, type: 'triangle' }, // E3 -- fifth
+    VIGILANTE: { freq: 220.00, type: 'sine' }      // A3 -- octave
+};
+const LAYER_GAIN = 0.045;
+
+function useAmbientResonance(gameState) {
+    const [soundEnabled, setSoundEnabled] = useState(() => {
+        try {
+            const saved = localStorage.getItem('tp_ambient_sound');
+            return saved ? saved === 'on' : DEFAULT_SOUND_ENABLED;
+        } catch { return DEFAULT_SOUND_ENABLED; }
+    });
+
+    // One mute switch for everything -- keeps the module-level flag that
+    // playGlitchSound checks in sync with this hook's own state, on mount
+    // and on every toggle.
+    useEffect(() => { audioMuted = !soundEnabled; }, [soundEnabled]);
+
+    const ctxRef = useRef(null);
+    const masterGainRef = useRef(null);
+    const layerNodesRef = useRef({});
+    const activatedRef = useRef(new Set());
+    const bonusCountRef = useRef(0);
+    const resolvedRef = useRef(false);
+
+    const ensureContext = () => {
+        if (ctxRef.current) return ctxRef.current;
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AudioContext();
+            const compressor = ctx.createDynamicsCompressor(); // cheap safety net against any params drifting loud
+            const masterGain = ctx.createGain();
+            masterGain.gain.value = soundEnabled ? 1 : 0;
+            masterGain.connect(compressor);
+            compressor.connect(ctx.destination);
+            ctxRef.current = ctx;
+            masterGainRef.current = masterGain;
+            return ctx;
+        } catch (e) {
+            console.warn("Ambient audio unavailable.", e);
+            return null;
+        }
+    };
+
+    // Browsers refuse to start audio without a user gesture. Rather than
+    // depend on which specific button someone happens to tap first, unlock
+    // on literally the first tap anywhere -- this game is 100% tap-driven,
+    // so that fires almost immediately either way.
+    useEffect(() => {
+        const unlock = () => {
+            const ctx = ensureContext();
+            if (ctx && ctx.state === 'suspended') ctx.resume();
+        };
+        document.addEventListener('pointerdown', unlock, { once: true });
+        return () => document.removeEventListener('pointerdown', unlock);
+    }, []);
+
+    const toggleSound = () => {
+        setSoundEnabled(prev => {
+            const next = !prev;
+            try { localStorage.setItem('tp_ambient_sound', next ? 'on' : 'off'); } catch {}
+            const ctx = ensureContext();
+            if (ctx && masterGainRef.current) {
+                if (ctx.state === 'suspended') ctx.resume();
+                masterGainRef.current.gain.linearRampToValueAtTime(next ? 1 : 0, ctx.currentTime + 0.3);
+            }
+            return next;
+        });
+    };
+
+    const activateLayer = (type) => {
+        if (activatedRef.current.has(type) || !RESONANCE_LAYERS[type]) return;
+        activatedRef.current.add(type);
+        const ctx = ensureContext();
+        if (!ctx || !masterGainRef.current) return;
+        const { freq, type: waveType } = RESONANCE_LAYERS[type];
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = waveType;
+        osc.frequency.value = freq;
+        gain.gain.value = 0;
+        osc.connect(gain);
+        gain.connect(masterGainRef.current);
+        osc.start();
+        gain.gain.linearRampToValueAtTime(LAYER_GAIN, ctx.currentTime + 1.4);
+        layerNodesRef.current[type] = { osc, gain };
+    };
+
+    // A brief flutter across whatever's already playing -- feedback for a
+    // bonus find without adding new pitch content to the drone.
+    const flourish = () => {
+        const ctx = ctxRef.current;
+        if (!ctx) return;
+        Object.values(layerNodesRef.current).forEach(({ osc }) => {
+            const now = ctx.currentTime;
+            osc.detune.cancelScheduledValues(now);
+            osc.detune.setValueAtTime(0, now);
+            osc.detune.linearRampToValueAtTime(18, now + 0.3);
+            osc.detune.linearRampToValueAtTime(0, now + 0.6);
+        });
+    };
+
+    // A2/E3/A3 power chord resolves into a full triad -- major third (C#4)
+    // for CRI, minor third (C4) for HACKER -- then fades back down, leaving
+    // the base drone playing.
+    const playResolveSting = (faction) => {
+        const ctx = ensureContext();
+        if (!ctx || !masterGainRef.current) return;
+        const thirdFreq = faction === 'HACKER' ? 261.63 : 277.18;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = thirdFreq;
+        gain.gain.value = 0;
+        osc.connect(gain);
+        gain.connect(masterGainRef.current);
+        const now = ctx.currentTime;
+        osc.start(now);
+        gain.gain.linearRampToValueAtTime(LAYER_GAIN * 1.4, now + 0.6);
+        gain.gain.linearRampToValueAtTime(LAYER_GAIN * 0.5, now + 3);
+        gain.gain.linearRampToValueAtTime(0, now + 6);
+        osc.stop(now + 6.2);
+    };
+
+    // Nodes are created (silently, at true gain) regardless of the mute
+    // toggle, so turning sound back on always reflects the real game state
+    // instead of missing whatever unlocked while muted.
+    useEffect(() => {
+        const foundTypes = new Set(gameState.unlockedNodes.map(n => n.type));
+        Object.keys(RESONANCE_LAYERS).forEach(t => { if (foundTypes.has(t)) activateLayer(t); });
+
+        const bonusCount = gameState.unlockedNodes.filter(n => n.type === 'MANUAL').length;
+        if (bonusCount > bonusCountRef.current) flourish();
+        bonusCountRef.current = bonusCount;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gameState.unlockedNodes]);
+
+    useEffect(() => {
+        if (!gameState.gameComplete || resolvedRef.current) return;
+        resolvedRef.current = true;
+        playResolveSting(gameState.faction);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gameState.gameComplete]);
+
+    return { soundEnabled, toggleSound };
+}
 
 // ==========================================
 // TYPEWRITER COMPONENT
@@ -385,6 +561,8 @@ export default function App() {
             bonusRevealShown: false
         };
     });
+
+    const { soundEnabled, toggleSound } = useAmbientResonance(gameState);
 
     const isArtistUnlocked = (artistId) => (gameState.unlockedArtists || []).includes(artistId);
 
@@ -1383,7 +1561,10 @@ export default function App() {
                     </h1>
                     <p className="text-[9px] text-cyan-600 font-mono mt-1 tracking-widest">FIELD OPERATIVE TERMINAL</p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
+                    <button onClick={toggleSound} title={soundEnabled ? "Mute ambient sound" : "Unmute ambient sound"} className="text-gray-500 hover:text-cyan-400 transition-colors border border-gray-800 p-1.5 rounded">
+                        {soundEnabled ? <Icons.Volume2 size={14} /> : <Icons.VolumeX size={14} />}
+                    </button>
                     <button onClick={() => setShowSandbox(true)} className="text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-cyan-400 transition-colors border border-gray-800 px-3 py-1.5 rounded">
                         [ BLAST / HELP ]
                     </button>
