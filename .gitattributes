@@ -1,0 +1,35 @@
+# Normalize line endings: the repo stores LF, your Windows working copy gets CRLF.
+# Without this, saving in Notepad++ marks every file as fully rewritten and
+# git status is permanently noisy.
+* text=auto
+
+*.js    text
+*.jsx   text
+*.ts    text
+*.tsx   text
+*.json  text
+*.css   text
+*.html  text
+*.md    text
+*.svg   text
+*.php   text
+*.sh    text eol=lf
+
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.mp3   binary
+*.mp4   binary
+*.wav   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.zip   binary
+*.pdf   binary
+*.glb   binary
+*.gltf  binary
+*.fbx   binary
+*.blend binary
