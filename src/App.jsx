@@ -618,6 +618,36 @@ const STATIC_LORE_NODES = [
         text: "[ DECLASSIFIED — 1971 ]<br/><br/>Joint case file confirms the man known publicly as D.B. Cooper was not a hijacker. He was a CRI Field Agent executing an authorized temporal displacement jump into 1956.<br/><br/>The parachute functioned as a kinetic decelerator. The $200,000 in ransom bills was never about money — it was exactly 21 pounds of ballast, the precise mass required to stabilize the jump.",
         artistNotes: "This is it. This is the document that closes the loop.\n\nHe didn't disappear over the forest. He jumped on purpose — straight into 1956, straight into the lab that used to sit under this block. Put this on the window. Let whoever finds this place next see it."
     },
+
+    // ==========================================
+    // EASTER EGG — FBI-CRI-1971-GREEN. Painted directly on a door, no
+    // sticker/RFID. Extends DOCUMENT-J's reveal (Cooper was a CRI field
+    // agent) one layer further: "D.B. Cooper" wasn't a person, it was an
+    // assigned cover identity. `legacy: true` for the same hidden,
+    // never-advertised Case Board behavior as the other easter eggs.
+    // ==========================================
+    {
+        id: 'static-fbi-cri-1971-green',
+        code: 'FBI-CRI-1971-GREEN',
+        legacy: true,
+        title: 'FBI/CRI Joint File: Subject Identity Change (1971)',
+        lat: BELLTOWN.lat, lng: BELLTOWN.lng,
+        text: "[ FBI/CRI JOINT FILE — 1971 — CLASSIFICATION: EYES ONLY ]<br/><br/>" +
+              "\"D.B. Cooper\" was never a name. It was a slot.<br/><br/>" +
+              "REAL NAME: ████████████████. SERVICE RECORD: ████████████████████████████████. " +
+              "REASSIGNED ██ NOV 1971 TO FIELD DESIGNATION \"COOPER,\" EFFECTIVE THROUGH MISSION " +
+              "COMPLETION.<br/><br/>" +
+              "The identity was built to be disposable. A parachute, a briefcase, a plane, and a name " +
+              "with no before and no after — the kind of man nobody looks for twice.<br/><br/>" +
+              "NOTE (handwritten, different pen, unverified author): <i>if he lands wrong, we lose the " +
+              "mass calculation and the man. Neither file closes.</i><br/><br/>" +
+              "STATUS: Open.",
+        artistNotes: "DOCUMENT-J told us what he did. This tells us he wasn't even supposed to be a " +
+                     "\"who.\"\n\nThey built a name the way you'd build a parachute — for one jump, then " +
+                     "gone. The only reason we know his name wasn't real is that they redacted the real " +
+                     "one harder than the cover story."
+    },
+
     // Teaser that plants the Subject 89 name and drops a Belltown map pin — kept
     // deliberately light since the full story lives in the doors above now.
     {
@@ -712,17 +742,17 @@ const STATIC_LORE_NODES = [
     },
 
     // ==========================================
-    // EASTER EGG — ISO-RED-666. A friend-of-the-show door, not part of the
+    // EASTER EGG — ISO-666-RED. A friend-of-the-show door, not part of the
     // required 3 or the Subject 89 lore set. `legacy: true` reused again
     // purely for its "hide the Case Board slot until found" behavior --
     // this is meant to be a pure surprise for whoever scans that door,
     // never advertised or hinted at.
     // ==========================================
     {
-        id: 'static-iso-red-666',
-        code: 'ISO-RED-666',
+        id: 'static-iso-666-red',
+        code: 'ISO-666-RED',
         legacy: true,
-        title: 'Asset Log: ISO-RED-666 (Unscheduled)',
+        title: 'Asset Log: ISO-666-RED (Unscheduled)',
         lat: VENUE.lat, lng: VENUE.lng,
         text: "[ CRI ASSET LOG — UNSCHEDULED ENTRY ]<br/><br/>" +
               "This door was not on the manifest. Nobody on staff installed it, requisitioned it, or " +
@@ -845,9 +875,11 @@ const STATIC_MAIN_NODES = {
         code: 'SUB-89-CELL',
         title: 'Containment Chamber 4-C',
         lat: VENUE.lat, lng: VENUE.lng,
-        desc: "Inside the room. Stand in the middle of it and read what these walls were built to do.",
+        desc: "Through the glass. Read what these walls were built to do — you don't need to go in to see it.",
         text: "[ CRI FACILITY SCHEMATIC — SUB-LEVEL 4 — CAPITOL HILL SITE ]<br/><br/>" +
-              "You are standing in it.<br/><br/>" +
+              "You are looking at it, not standing in it. The glass is the only part of the original " +
+              "containment still doing its job — the rest of what's live in there now isn't something " +
+              "CRI signs off on visitors touching.<br/><br/>" +
               "Chamber 4-C was built in 1983 and decommissioned in 1987. Interior surfaces were poured " +
               "in a single continuous pass with no seams, no fixtures and no right angles at floor level " +
               "— the Institute's first guess, and wrong. Doors carry their own resonant frequency. That " +
@@ -856,10 +888,10 @@ const STATIC_MAIN_NODES = {
               "frequency itself, tuned to cancel it rather than contain it. Staff rotated out at six weeks. " +
               "Longer postings produced nosebleeds, lost time, and what the medical files call " +
               "'persistent conviction of being observed through the wall.'<br/><br/>" +
-              "The room you are standing in is a reconstruction. It is made of doors, which is either a " +
-              "joke or the point.",
+              "The room on the other side of this glass is a reconstruction. It is made of doors, which " +
+              "is either a joke or the point.",
         artistNotes: "We built it from memory and one schematic. The proportions are right.\n\n" +
-                     "Stand in the middle and stop talking for a second. That's the part they couldn't " +
+                     "Stand at the glass and stop talking for a second. That's the part they couldn't " +
                      "design out."
     },
     DETECTIVE: {
@@ -916,6 +948,24 @@ const NODE_CONFIG = {
     'DETECTIVE': { profile: 'THE DETECTIVE', desc: 'Neutral. Thorough. Follow the evidence wherever it leads.', color: '#eab308', textClass: 'text-yellow-400', borderClass: 'border-yellow-500', bgClass: 'bg-yellow-900/20', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>` },
     'VIGILANTE': { profile: 'THE VIGILANTE', desc: "Some rules are made to be broken. Take matters into your own hands.", color: '#ef4444', textClass: 'text-red-400', borderClass: 'border-red-500', bgClass: 'bg-red-900/20', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>` }
 };
+
+// ==========================================
+// ROOM SCHEMATIC — replaces real map pins for tonight. Every physical prop
+// lives in one room, so lat/lng has nothing meaningful to show; this is a
+// fixed hexagon of dots (percentage-positioned, not tied to any real door
+// name -- placement is still being worked out with the room) standing in
+// for the 6 findable Subject 89 spots. Hollow until found, filled and glowing
+// once it is. The 2 hidden easter eggs (ISO-666-RED, FBI-CRI-1971-GREEN)
+// deliberately have no dot -- they're meant to stay a pure surprise.
+// ==========================================
+const ROOM_SCHEMATIC_DOTS = [
+    { nodeType: 'GUARDIAN', x: 50, y: 18 },
+    { nodeType: 'DETECTIVE', x: 80, y: 38 },
+    { nodeType: 'VIGILANTE', x: 80, y: 72 },
+    { loreId: 'static-sub89-release', x: 50, y: 88 },
+    { loreId: 'static-sub89-hum', x: 20, y: 72 },
+    { loreId: 'static-sub89-intake', x: 20, y: 38 }
+];
 
 export default function App() {
     const mapRef = useRef(null);
@@ -1431,36 +1481,13 @@ export default function App() {
         // Leaflet mis-measures if it mounted while overlaid; re-measure on reveal.
         setTimeout(() => mapInstance.current && mapInstance.current.invalidateSize(), 250);
 
+        // No pins drawn here anymore -- see ROOM_SCHEMATIC_DOTS / the JSX overlay
+        // below. Every physical prop tonight sits in the same one room, so real
+        // lat/lng pins (the old Belltown Blast addresses, left over from before
+        // the Subject 89 rebuild) were both geographically wrong for this venue
+        // and, since everything shared 1-2 coordinates, just stacked identical
+        // pins on top of each other as things got found.
         dynamicLayer.current.clearLayers();
-
-        // Always-visible venue pin so the map isn't empty before anyone has scanned
-        // anything — all of tonight's physical props are at this one location.
-        if (CLOSED_LOOP_DEMO) {
-            const targetSvg = (color) => `<div style="color:${color}; filter:drop-shadow(0 0 10px ${color});"><svg viewBox="0 0 24 24" fill="currentColor" class="w-9 h-9"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></div>`;
-            // Orange = not scanned yet, cyan = already unlocked (matches the unlocked-node pin color below).
-            [
-                { ...DSHS, id: 'static-dshs-1980' },
-                { ...SHORTYS, id: 'static-boaz-smash' },
-                { ...JUPITER_BAR, id: 'static-tag-signal' }
-            ].forEach(loc => {
-                const isUnlocked = gameState.unlockedNodes.some(n => n.id === loc.id);
-                L.marker([loc.lat, loc.lng], { icon: L.divIcon({ html: targetSvg(isUnlocked ? '#06b6d4' : '#f97316'), className: 'map-overlay', iconSize: [36, 36], iconAnchor: [18, 36] }) })
-                    .bindTooltip(loc.label, { permanent: false, direction: 'top' })
-                    .addTo(dynamicLayer.current);
-            });
-        }
-
-        const vectorPoints = [];
-        gameState.unlockedNodes.forEach(node => {
-            if (!node.lat || !node.lng) return;
-            vectorPoints.push([node.lat, node.lng]);
-            const svgHtml = `<div style="color:#06b6d4; filter:drop-shadow(0 0 10px #06b6d4);"><svg viewBox="0 0 24 24" fill="currentColor" class="w-8 h-8"><circle cx="12" cy="12" r="8"></circle></svg></div>`;
-            L.marker([node.lat, node.lng], { icon: L.divIcon({ html: svgHtml, className: 'map-overlay', iconSize: [32,32], iconAnchor: [16,16] }) }).addTo(dynamicLayer.current);
-        });
-
-        if (vectorPoints.length > 1) {
-            L.polyline(vectorPoints, { color: '#a855f7', weight: 4, dashArray: '10, 15', opacity: 0.8, className: 'vector-line' }).addTo(dynamicLayer.current);
-        }
 
     }, [activeTab, gameState, artifactsDb, bootPhase]);
 
@@ -2118,6 +2145,28 @@ export default function App() {
                 <div className={`absolute inset-0 transition-opacity duration-300 flex flex-col ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
                     <div className="flex-1 min-h-[30vh] relative w-full border-b border-cyan-900/30" style={{ background: CRI_GRID_BG }}>
                         <div ref={mapRef} className={`w-full h-full absolute inset-0 z-10 ${activeTab === 'MAP' ? '' : 'pointer-events-none'}`}></div>
+                        <div className="absolute inset-0 z-20 pointer-events-none">
+                            {ROOM_SCHEMATIC_DOTS.map(d => {
+                                const item = d.nodeType ? STATIC_MAIN_NODES[d.nodeType] : STATIC_LORE_NODES.find(n => n.id === d.loreId);
+                                if (!item) return null;
+                                const unlocked = gameState.unlockedNodes.some(n => n.id === item.id);
+                                const color = d.nodeType ? NODE_CONFIG[d.nodeType].color : '#a855f7';
+                                return (
+                                    <button key={item.id}
+                                        onClick={() => unlocked && setActiveMedia(item)}
+                                        title={unlocked ? item.title : '???'}
+                                        className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-500 pointer-events-auto ${unlocked ? 'w-5 h-5' : 'w-3 h-3'}`}
+                                        style={{
+                                            left: `${d.x}%`, top: `${d.y}%`,
+                                            background: unlocked ? color : 'transparent',
+                                            border: `2px solid ${color}`,
+                                            boxShadow: unlocked ? `0 0 14px 4px ${color}` : 'none',
+                                            cursor: unlocked ? 'pointer' : 'default'
+                                        }}
+                                    />
+                                );
+                            })}
+                        </div>
                     </div>
 
                     <div className="p-4 md:p-6 bg-[#020617] shrink-0 max-h-[45vh] overflow-y-auto custom-scrollbar z-[500] shadow-[0_-10px_30px_rgba(0,0,0,0.8)] relative">
