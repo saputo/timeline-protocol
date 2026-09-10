@@ -478,6 +478,14 @@ const STRIPE_LINK = "https://www.zeffy.com/en-US/donation-form/the-catalyst-acce
 // cosmetic identity choice from Build Profile — it no longer gates order.
 const MAIN_NODE_TYPES = ['GUARDIAN', 'DETECTIVE', 'VIGILANTE'];
 
+// The 3 optional-but-advertised Subject 89 lore nodes. "Everything found" for
+// the end-of-night capstone reveal (TAG YOU'RE IT / LAZARO EXISTS) means all
+// 3 main nodes above PLUS these 3 -- deliberately NOT the 2 hidden easter eggs
+// (ISO-666-RED / FBI-CRI-1971-GREEN are meant to stay pure surprises most
+// players will never find) and NOT SUB-89-GONE (HACKER-only auto-grant -- a
+// CRI player could never satisfy that one, so it can't gate a shared reveal).
+const ADVERTISED_LORE_IDS = ['static-sub89-intake', 'static-sub89-hum', 'static-sub89-release'];
+
 // ==========================================
 // TEMPORAL ARTISTS
 // Scan codes below are wired into processScan() — print these on the
@@ -487,6 +495,7 @@ const TEMPORAL_ARTISTS = [
     {
         id: 'TA-01',
         scanCode: 'TAG-ARTIST-IMP',
+        legacy: true, // not part of tonight's Sandbox show -- hidden from the board until found, same as the other legacy content
         name: 'Caity Johnson',
         alias: 'THE INSPIRED IMP',
         role: 'The Curator // Inside Eyes',
@@ -511,6 +520,7 @@ const TEMPORAL_ARTISTS = [
     {
         id: 'TA-02',
         scanCode: 'TAG-ARTIST-AEGIS',
+        legacy: true, // not part of tonight's Sandbox show -- hidden from the board until found, same as the other legacy content
         name: 'Jacoby Hinton',
         alias: 'THE VANGUARD',
         role: 'TAG Muscle // Recruiter',
@@ -875,7 +885,7 @@ const STATIC_MAIN_NODES = {
         code: 'SUB-89-CELL',
         title: 'Containment Chamber 4-C',
         lat: VENUE.lat, lng: VENUE.lng,
-        desc: "Through the glass. Read what these walls were built to do — you don't need to go in to see it.",
+        desc: "Through the glass. Read what these walls were built to do, and listen to what's still trying to finish the job.",
         text: "[ CRI FACILITY SCHEMATIC — SUB-LEVEL 4 — CAPITOL HILL SITE ]<br/><br/>" +
               "You are looking at it, not standing in it. The glass is the only part of the original " +
               "containment still doing its job — the rest of what's live in there now isn't something " +
@@ -888,11 +898,20 @@ const STATIC_MAIN_NODES = {
               "frequency itself, tuned to cancel it rather than contain it. Staff rotated out at six weeks. " +
               "Longer postings produced nosebleeds, lost time, and what the medical files call " +
               "'persistent conviction of being observed through the wall.'<br/><br/>" +
+              "Decommissioned is generous. Whatever exact chord held him for those four years stopped " +
+              "working the moment he left, and CRI never fully rebuilt it. What's set up in the room " +
+              "tonight — the instruments, the rack of monitoring gear, the two people in there who keep " +
+              "re-tuning instead of performing — is that same search, still running. A gallery crowd is " +
+              "a convenient reason for nobody to ask why a room full of listening equipment is live " +
+              "tonight.<br/><br/>" +
               "The room on the other side of this glass is a reconstruction. It is made of doors, which " +
               "is either a joke or the point.",
         artistNotes: "We built it from memory and one schematic. The proportions are right.\n\n" +
                      "Stand at the glass and stop talking for a second. That's the part they couldn't " +
-                     "design out."
+                     "design out.\n\n" +
+                     "The two playing in there tonight aren't just filling time, either. Watch how they " +
+                     "listen to each other, not the room. That's rehearsal for something, and it isn't a " +
+                     "set list."
     },
     DETECTIVE: {
         id: 'static-sub89-tape',
@@ -1016,6 +1035,7 @@ export default function App() {
     const [userEmail, setUserEmail] = useState('');
     const [showBonusReveal, setShowBonusReveal] = useState(false);
     const bonusRevealHandledRef = useRef(false);
+    const completionReportHandledRef = useRef(false);
 
     // A returning player has an old show's save but none yet under this
     // show's key -- purely for the one-time "welcome back" toast below,
@@ -1036,7 +1056,8 @@ export default function App() {
             unlockedArtists: [],
             gameComplete: false,
             faction: null, // null | 'HACKER' | 'CRI' — set on the first-unlock breach choice
-            bonusRevealShown: false
+            bonusRevealShown: false,
+            completionReported: false
         };
     });
 
@@ -1046,9 +1067,29 @@ export default function App() {
 
     useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState)), [gameState]);
 
-    // BONUS REVEAL — a beat after the game completes (any order, either faction),
-    // a full-screen stinger fires once and never again. Higher z-index than the
-    // hacker end popup so it lands on top of it if that's still open.
+    // "Everything" for the capstone reveal below -- see ADVERTISED_LORE_IDS.
+    const allContentFound = gameState.gameComplete && ADVERTISED_LORE_IDS.every(id => gameState.unlockedNodes.some(n => n.id === id));
+
+    // GAME COMPLETE (3/3 main nodes) fires a one-time "someone finished" ping --
+    // separate from, and much rarer than, the per-item HACKER "leak" reports.
+    // Guarded the same way as the bonus reveal below so StrictMode / reloads
+    // can't resend it.
+    useEffect(() => {
+        if (gameState.gameComplete && !gameState.completionReported && !completionReportHandledRef.current) {
+            completionReportHandledRef.current = true;
+            submitCompletionReport();
+            setGameState(prev => ({ ...prev, completionReported: true }));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gameState.gameComplete, gameState.completionReported]);
+
+    // BONUS REVEAL — the true end-of-night capstone. Only once EVERYTHING
+    // advertised is found (all 3 main nodes + all 3 optional lore docs, see
+    // ADVERTISED_LORE_IDS) -- reaching 3/3 alone is NOT enough to trigger this
+    // anymore. Also waits for whatever's currently on screen to be dismissed
+    // first (the plain per-scan ASSET RECOVERED card, and for HACKER players
+    // their own "three nodes secured" end popup) so this never slams down over
+    // something the player hasn't read yet. Fires once and never again.
     //
     // bonusRevealShown is flipped to true immediately here (not in the
     // dismiss handler) -- it means "this has already played," not "the
@@ -1068,12 +1109,14 @@ export default function App() {
     // truly unmounts during real play, and a real unmount firing one no-op
     // setShowBonusReveal afterwards is harmless.
     useEffect(() => {
-        if (gameState.gameComplete && !gameState.bonusRevealShown && !bonusRevealHandledRef.current) {
+        const nothingElseOnScreen = !activeMedia && (gameState.faction !== 'HACKER' || hackerEndPhase === 0);
+        if (allContentFound && nothingElseOnScreen && !gameState.bonusRevealShown && !bonusRevealHandledRef.current) {
             bonusRevealHandledRef.current = true;
             setGameState(prev => ({ ...prev, bonusRevealShown: true }));
             setTimeout(() => setShowBonusReveal(true), 2800);
         }
-    }, [gameState.gameComplete, gameState.bonusRevealShown]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [allContentFound, gameState.bonusRevealShown, activeMedia, hackerEndPhase, gameState.faction]);
 
     const dismissBonusReveal = () => setShowBonusReveal(false);
 
@@ -1499,6 +1542,20 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ alias: userAlias, email: userEmail, faction, source: 'Subject 89 — Faction Report', ...extra })
+        }).catch(() => {});
+    };
+
+    // Fires exactly once per player, the moment they actually finish (3/3 main
+    // nodes) -- the "who finished" signal. Everyday scanning (main nodes, lore,
+    // easter eggs) never hits the network at all; the only other things that do
+    // are this, the one-time Profile Build capture, and a HACKER player's own
+    // opt-in "[ LEAK TO C@T@LY$T ]" button. Same Formspree inbox, distinct
+    // source label so it's easy to filter for.
+    const submitCompletionReport = () => {
+        fetch("https://formspree.io/f/xrededjy", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ alias: userAlias, email: userEmail, faction: gameState.faction, source: 'Subject 89 — Game Complete' })
         }).catch(() => {});
     };
 
@@ -2006,8 +2063,8 @@ export default function App() {
                 the reveal that's already open; dismissing it just closes the popup,
                 the same CRI reveal card stays put underneath. */}
             {hackerInterludePhase > 0 && gameState.faction === 'HACKER' && (
-                <div className="fixed inset-0 z-[7000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6 fade-in">
-                    <div className="w-full max-w-md border border-[#00ff41] bg-black/95 p-8 rounded-lg shadow-[0_0_30px_rgba(0,255,65,0.3)]">
+                <div className="fixed inset-0 z-[7000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6 overflow-y-auto fade-in">
+                    <div className="w-full max-w-md border border-[#00ff41] bg-black/95 p-8 rounded-lg shadow-[0_0_30px_rgba(0,255,65,0.3)] my-auto">
                         <div className="text-5xl mb-6 text-center animate-pulse select-none" style={{ filter: 'drop-shadow(0 0 10px #00ff41)' }}>🐈‍⬛</div>
                         <TypewriterText
                             lines={interludeLines}
@@ -2056,6 +2113,11 @@ export default function App() {
                                     We'll analyze from here and let you know what the next move is.<br/><br/>
                                     Add our IG page <span className="font-bold">@boblovesdoors</span> &amp; tag us in any photos you took!
                                 </p>
+                                {!allContentFound && (
+                                    <p className="font-mono text-[#00ff41]/60 text-[11px] uppercase tracking-widest mb-4">
+                                        Three nodes isn't the whole file. Keep scanning — there's more still out there.
+                                    </p>
+                                )}
 
                                 <div className="border-2 border-[#00ff41] bg-black p-6 rounded-lg shadow-[0_0_35px_rgba(0,255,65,0.5)] text-center">
                                     <p className="text-[#00ff41] font-black text-base leading-snug uppercase" style={{textShadow: '0 0 10px #00ff41, 0 0 22px #00ff41'}}>
@@ -2201,7 +2263,7 @@ export default function App() {
                                     </div>
                                     {getRemainingClues().map(c => (
                                         <div key={c.type} className="p-4 glass-panel rounded text-sm text-gray-300 font-mono leading-relaxed">
-                                            <div className="text-[9px] text-cyan-600 uppercase tracking-widest mb-1">{c.type} NODE</div>
+                                            <div className="text-[9px] text-cyan-600 uppercase tracking-widest mb-1">UNRECOVERED ASSET</div>
                                             <div dangerouslySetInnerHTML={{ __html: c.clue }} />
                                         </div>
                                     ))}
@@ -2214,6 +2276,11 @@ export default function App() {
                                         SITE LOGGED. Great job, operative {userAlias || 'operative'}. You successfully logged the known anomalies — we can now mark this site as secured.<br/><br/>
                                         Add us on Instagram <span className="font-bold">@cascadiaresonanceinstitute</span> and upload a screenshot and photo of your mission.
                                     </p>
+                                    {!allContentFound && (
+                                        <p className="font-mono text-cyan-600 text-[11px] uppercase tracking-widest mb-4">
+                                            Three sectors doesn't close the file. There's more still unaccounted for in this room.
+                                        </p>
+                                    )}
                                     <div className="border-2 border-cyan-400 bg-[#020617] p-6 rounded-lg shadow-[0_0_35px_rgba(34,211,238,0.5)] max-w-sm mx-auto">
                                         <div className="text-6xl mb-3 select-none" style={{ filter: 'drop-shadow(0 0 12px #22d3ee)' }}>🛡️</div>
                                         <p className="text-cyan-300 font-black text-2xl tracking-widest" style={{textShadow: '0 0 10px #22d3ee'}}>CRI-{(userAlias || 'OPERATIVE').toUpperCase()}</p>
@@ -2255,7 +2322,7 @@ export default function App() {
                                         // until it's actually been found.
                                         .filter(item => {
                                             if (!item.legacy) return true;
-                                            return gameState.unlockedNodes.some(n => n.id === item.id);
+                                            return item.scanCode ? isArtistUnlocked(item.id) : gameState.unlockedNodes.some(n => n.id === item.id);
                                         })
                                         .map(item => {
                                         const isArtist = !!item.scanCode;
