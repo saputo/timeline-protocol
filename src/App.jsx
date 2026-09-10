@@ -16,6 +16,9 @@ import { CRILogo } from './CRILogo';
 // half of what's actually playing.
 let audioMuted = false;
 
+// Soft confirm chime — sine, not sawtooth, and a gentle upward glide rather
+// than a harsh downward screech. Healing-tone brief, not glitch-horror: this
+// fires on every single scan, so it's the most-heard sound in the game.
 const playGlitchSound = () => {
     if (audioMuted) return;
     try {
@@ -23,20 +26,21 @@ const playGlitchSound = () => {
         const ctx = new AudioContext();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(800, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.4);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(330, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.5);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
         osc.start();
-        osc.stop(ctx.currentTime + 0.4);
+        osc.stop(ctx.currentTime + 0.65);
     } catch (e) { console.warn("Audio blocked."); }
 };
 
 // ==========================================
-// AMBIENT RESONANCE LAYER SYSTEM (prototype)
+// AMBIENT RESONANCE LAYER SYSTEM
 // A quiet, additive drone: each of the 3 main node types (GUARDIAN /
 // DETECTIVE / VIGILANTE) owns one sustained harmonic layer that fades in
 // the moment it's found, in whatever order they're found. Bonus/lore finds
@@ -44,6 +48,12 @@ const playGlitchSound = () => {
 // adding new pitches, so it never gets cluttered even at all 14 items.
 // Full completion resolves the power chord into a full triad -- major
 // (brighter) for CRI, minor (moodier) for HACKER.
+//
+// Tuned to A=432Hz (not the standard A=440) — still a plain root/fifth/
+// octave power chord (nothing dissonant), just pitched half a step warmer.
+// In-fiction this is "CRI's recalibrated resonance frequency"; out of
+// fiction it's the healing/calming tuning association. The whole point is
+// to help people relax into the room, not to spike adrenaline.
 //
 // Entirely synthesized, same approach as playGlitchSound -- no audio
 // files, no loading. Ties into the game's own "resonance research" fiction
@@ -55,11 +65,33 @@ const playGlitchSound = () => {
 // ==========================================
 const DEFAULT_SOUND_ENABLED = true;
 const RESONANCE_LAYERS = {
-    GUARDIAN:  { freq: 110.00, type: 'sine' },     // A2 -- root
-    DETECTIVE: { freq: 164.81, type: 'triangle' }, // E3 -- fifth
-    VIGILANTE: { freq: 220.00, type: 'sine' }      // A3 -- octave
+    GUARDIAN:  { freq: 108.00, type: 'sine' },     // A2 @432 -- root
+    DETECTIVE: { freq: 162.00, type: 'triangle' }, // E3 @432 -- fifth
+    VIGILANTE: { freq: 216.00, type: 'sine' }      // A3 @432 -- octave
 };
-const LAYER_GAIN = 0.045;
+// A whisper, not a wash -- roughly a third of the old level. With all 3
+// layers stacked this still tops out well under the confirm-chime volume.
+const LAYER_GAIN = 0.015;
+// Slow inhale/exhale swell on top of the drone -- one breath every ~8.6s
+// (0.0625Hz), gently rising and falling the layer volume by about a third
+// of itself rather than a flat static tone. This is the "beat" -- a
+// breathing pulse, not a rhythm track, so it reads as calming rather than
+// energizing.
+const BREATH_RATE_HZ = 0.0625;
+const BREATH_DEPTH = 0.35;
+
+// Slow arpeggio layered on top of the drone -- starts only once the loop is
+// closed (the 3rd main door), as the reward for finishing, then keeps
+// unlocking one more note per additional bonus/lore find found after that
+// (exploring lore before completion still counts -- it just means the
+// pattern starts richer instead of starting late). Same A-root @432 scale
+// as the drone (A3/C#4/E4/A4/B4 -- major-add9, still consonant with the
+// sustained chord underneath), plucked softly one note at a time rather
+// than stacked as sustained tones, so it reads as a slow building melody,
+// not a wall of pitches.
+const ARPEGGIO_NOTES = [216.00, 272.14, 323.70, 432.00, 484.90];
+const ARPEGGIO_STEP_SECONDS = 1.9;
+const ARPEGGIO_GAIN = 0.05;
 
 function useAmbientResonance(gameState) {
     const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -80,6 +112,10 @@ function useAmbientResonance(gameState) {
     const activatedRef = useRef(new Set());
     const bonusCountRef = useRef(0);
     const resolvedRef = useRef(false);
+    const breathScalerRef = useRef(null);
+    const arpNotesUnlockedRef = useRef(0);
+    const arpIntervalRef = useRef(null);
+    const arpIndexRef = useRef(0);
 
     const ensureContext = () => {
         if (ctxRef.current) return ctxRef.current;
@@ -91,6 +127,20 @@ function useAmbientResonance(gameState) {
             masterGain.gain.value = soundEnabled ? 1 : 0;
             masterGain.connect(compressor);
             compressor.connect(ctx.destination);
+
+            // Shared breathing LFO -- one slow sine, fanned out into every
+            // layer's gain param as they activate, so all layers swell and
+            // fall in phase together like a single breath instead of each
+            // drifting independently.
+            const breathLFO = ctx.createOscillator();
+            breathLFO.type = 'sine';
+            breathLFO.frequency.value = BREATH_RATE_HZ;
+            const breathScaler = ctx.createGain();
+            breathScaler.gain.value = LAYER_GAIN * BREATH_DEPTH;
+            breathLFO.connect(breathScaler);
+            breathLFO.start();
+            breathScalerRef.current = breathScaler;
+
             ctxRef.current = ctx;
             masterGainRef.current = masterGain;
             return ctx;
@@ -139,6 +189,7 @@ function useAmbientResonance(gameState) {
         gain.gain.value = 0;
         osc.connect(gain);
         gain.connect(masterGainRef.current);
+        if (breathScalerRef.current) breathScalerRef.current.connect(gain.gain);
         osc.start();
         gain.gain.linearRampToValueAtTime(LAYER_GAIN, ctx.currentTime + 1.4);
         layerNodesRef.current[type] = { osc, gain };
@@ -156,6 +207,39 @@ function useAmbientResonance(gameState) {
             osc.detune.linearRampToValueAtTime(18, now + 0.3);
             osc.detune.linearRampToValueAtTime(0, now + 0.6);
         });
+    };
+
+    // One soft plucked note -- short attack, gentle decay, routed through
+    // masterGain so the existing mute button silences this too.
+    const playArpNote = (freq) => {
+        const ctx = ctxRef.current;
+        if (!ctx || !masterGainRef.current) return;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.value = 0;
+        osc.connect(gain);
+        gain.connect(masterGainRef.current);
+        const now = ctx.currentTime;
+        osc.start(now);
+        gain.gain.linearRampToValueAtTime(ARPEGGIO_GAIN, now + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.0005, now + 1.3);
+        osc.stop(now + 1.4);
+    };
+
+    // Starts on the first bonus/lore find and runs for the rest of the
+    // session -- a slow, quiet plucked pattern that only uses however many
+    // notes have been unlocked so far (see arpNotesUnlockedRef), so it
+    // visibly/audibly grows richer the more a player explores.
+    const startArpeggio = () => {
+        if (arpIntervalRef.current) return;
+        arpIntervalRef.current = setInterval(() => {
+            const unlocked = Math.max(1, arpNotesUnlockedRef.current);
+            const freq = ARPEGGIO_NOTES[arpIndexRef.current % unlocked];
+            arpIndexRef.current += 1;
+            playArpNote(freq);
+        }, ARPEGGIO_STEP_SECONDS * 1000);
     };
 
     // A2/E3/A3 power chord resolves into a full triad -- major third (C#4)
@@ -180,6 +264,59 @@ function useAmbientResonance(gameState) {
         osc.stop(now + 6.2);
     };
 
+    // "LAZARO EXISTS" spoken low, slow, and ring-modulated -- the one
+    // deliberately harsh, inhuman moment in the whole design. Everything
+    // else here is built to be calming; this is the villain's own voice
+    // landing wrong on purpose, right at the CRI-ending reveal.
+    //
+    // True ring modulation needs a multiply node the Web Audio API doesn't
+    // expose directly, so this approximates it the standard trick way: a
+    // slow oscillator connected straight into the carrier's gain AudioParam
+    // amplitude-modulates it into that same buzzy, robotic texture without
+    // needing a custom AudioWorklet.
+    //
+    // Browser TTS audio can't be routed through the Web Audio graph itself
+    // (no browser exposes speechSynthesis output as a source node), so the
+    // spoken line and the buzz are two separate, simultaneous layers rather
+    // than the buzz actually processing the voice.
+    const speakLazaroReveal = () => {
+        if (audioMuted) return;
+        try {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+                const utter = new SpeechSynthesisUtterance('LAZARO EXISTS.');
+                utter.pitch = 0.1;
+                utter.rate = 0.75;
+                utter.volume = 1;
+                window.speechSynthesis.speak(utter);
+            }
+        } catch (e) { console.warn("Speech synthesis unavailable.", e); }
+
+        const ctx = ensureContext();
+        if (!ctx || !masterGainRef.current) return;
+        const carrier = ctx.createOscillator();
+        const modulator = ctx.createOscillator();
+        const modDepth = ctx.createGain();
+        const outGain = ctx.createGain();
+        const restingLevel = LAYER_GAIN * 4;
+        carrier.type = 'square';
+        carrier.frequency.value = 95;
+        modulator.type = 'sine';
+        modulator.frequency.value = 32;
+        modDepth.gain.value = restingLevel;
+        modulator.connect(modDepth);
+        modDepth.connect(outGain.gain);
+        carrier.connect(outGain);
+        outGain.connect(masterGainRef.current);
+        const now = ctx.currentTime;
+        outGain.gain.setValueAtTime(restingLevel, now);
+        outGain.gain.linearRampToValueAtTime(0, now + 2.2);
+        carrier.start(now);
+        modulator.start(now);
+        carrier.stop(now + 2.3);
+        modulator.stop(now + 2.3);
+    };
+
     // Nodes are created (silently, at true gain) regardless of the mute
     // toggle, so turning sound back on always reflects the real game state
     // instead of missing whatever unlocked while muted.
@@ -187,20 +324,41 @@ function useAmbientResonance(gameState) {
         const foundTypes = new Set(gameState.unlockedNodes.map(n => n.type));
         Object.keys(RESONANCE_LAYERS).forEach(t => { if (foundTypes.has(t)) activateLayer(t); });
 
+        // Bonus/lore finds always grow the arpeggio's unlocked note count,
+        // whether that happens before or after the loop is closed -- but the
+        // pattern itself only starts playing once gameComplete fires (see
+        // below), so exploring lore early just means it starts richer.
         const bonusCount = gameState.unlockedNodes.filter(n => n.type === 'MANUAL').length;
-        if (bonusCount > bonusCountRef.current) flourish();
+        if (bonusCount > bonusCountRef.current) {
+            flourish();
+            arpNotesUnlockedRef.current = Math.min(ARPEGGIO_NOTES.length, bonusCount);
+        }
         bonusCountRef.current = bonusCount;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameState.unlockedNodes]);
 
+    // Stop the arpeggio's setInterval if this ever unmounts (session is
+    // effectively one long mount in practice, but keep this honest).
+    useEffect(() => () => { if (arpIntervalRef.current) clearInterval(arpIntervalRef.current); }, []);
+
+    // The arpeggio starts here, on the 3rd main door closing the loop --
+    // not on an earlier bonus find. If bonus items were already found before
+    // completion, arpNotesUnlockedRef is already > 1 by this point, so it
+    // starts with however many notes that exploration already earned.
+    //
+    // Gated on the persisted bonusRevealShown flag, not a local ref -- a
+    // local ref resets to false on every mount, so a player who completes
+    // the game and later reloads (phone backgrounded, tab killed, etc.)
+    // would otherwise hear the resolve chord and the arpeggio kick-in
+    // replay from scratch every single time they reopen the page.
     useEffect(() => {
-        if (!gameState.gameComplete || resolvedRef.current) return;
-        resolvedRef.current = true;
+        if (!gameState.gameComplete || gameState.bonusRevealShown) return;
         playResolveSting(gameState.faction);
+        startArpeggio();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameState.gameComplete]);
 
-    return { soundEnabled, toggleSound };
+    return { soundEnabled, toggleSound, speakLazaroReveal };
 }
 
 // ==========================================
@@ -255,12 +413,21 @@ const stripHtmlToLines = (html) => {
 };
 
 // ==========================================
-// CITY-WIDE CONFIGURATION 
+// CITY-WIDE CONFIGURATION
 // ==========================================
 const SEATTLE_CENTER = { lat: 47.6153, lng: -122.3204 };
 
-// Sandbox Seattle — 1417 10th Ave, Capitol Hill. Last night's venue; kept for
-// old codes/history, not part of tonight's Belltown map.
+// Map backdrop for tonight's single-venue game -- a CRI-terminal-style grid
+// with a soft radar glow centered on the venue, instead of real map tiles.
+// Same dark navy (#020617) and cyan the rest of the UI already uses.
+const CRI_GRID_BG =
+    'radial-gradient(circle at center, rgba(6,182,212,0.28) 0%, transparent 55%),' +
+    'repeating-linear-gradient(0deg, rgba(6,182,212,0.14) 0px, rgba(6,182,212,0.14) 1px, transparent 1px, transparent 40px),' +
+    'repeating-linear-gradient(90deg, rgba(6,182,212,0.14) 0px, rgba(6,182,212,0.14) 1px, transparent 1px, transparent 40px),' +
+    '#020617';
+
+// Sandbox Seattle — 1417 10th Ave, Capitol Hill. Tonight's venue (Subject 89,
+// 10 Sept 2026) — same building as last month's Failed Flight Plan show.
 const VENUE = { lat: 47.613592, lng: -122.319640, label: 'THE SANDBOX' };
 
 // Belltown neighborhood centroid — fallback for bonus/rogue nodes that don't
@@ -281,6 +448,27 @@ const DSHS = { lat: 47.6129029, lng: -122.343317, label: 'DSHS Building — 2106
 // To bring T3S back once it's repopulated correctly: set this to false.
 // ==========================================
 const CLOSED_LOOP_DEMO = true;
+
+// ==========================================
+// SHOW KILL SWITCH
+// Flip to false to take the live game down (a "the show has ended" screen
+// replaces the whole app, donate link included) without deleting any code.
+// This is a build-time flag, not a remote one — there's no backend live
+// right now to read a runtime toggle from, so turning the show off means
+// flipping this, rebuilding (`npm run build`), and re-uploading `dist/`
+// the same manual way every other deploy works. Turn it back to true and
+// redeploy to bring the game back.
+// ==========================================
+const SHOW_LIVE = true;
+
+// Storage key versioned per-show. Bumping it on a new show means anyone
+// returning with an old save doesn't have last month's completed main
+// nodes silently satisfy this month's (different) main nodes — they start
+// this show's loop fresh. The old key's data is left alone in their phone
+// (harmless) and is what OLD_STORAGE_KEY below checks for, purely to say
+// "welcome back" — see isReturningPlayer.
+const STORAGE_KEY = 'timeline_protocol_subject89_v1';
+const OLD_STORAGE_KEY = 'timeline_protocol_belltown_v1';
 
 const STRIPE_LINK = "https://www.zeffy.com/en-US/donation-form/the-catalyst-accelerating-the-reaction";
 
@@ -358,6 +546,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-flight-71',
         code: 'FLIGHT-71',
+        legacy: true,
         title: 'Intercepted Audio: The Professor',
         lat: VENUE.lat, lng: VENUE.lng,
         text: "[ CRI SIGNAL INTERCEPT — AFT AIRSTAIR DOOR RESONANCE ]<br/><br/>Audio recovered from the door's residual chronal signature. Full recording pending upload.<br/><br/>What's already decrypted: a second voice on the tape, calm, coaching. Bob isn't planning this alone.",
@@ -366,6 +555,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-tg-001',
         code: 'TG-001',
+        legacy: true,
         title: 'CRI Asset Log: The Synchronization Bridge',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "[ CRI ASSET DETAIL — CRI-TG-001 ]<br/><br/>The Temporal Mark Generator: a capacitor bank built to imprint a decades-long displacement factor onto a paired Anchor and Siphon. The process required a surge past every safety threshold on the schematic.<br/><br/>Recovered connection ports show heat-warped scarring consistent with total overload, moments before the unit was vaporized.",
@@ -374,6 +564,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-reactor-61',
         code: 'REACTOR-61',
+        legacy: true,
         title: 'AEC Order 66-9: Containment by Concrete',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "[ DECLASSIFIED — 1961 ]<br/><br/>Order issued for immediate construction of a research reactor directly over an existing radiation lab in this sector. Official justification on file: modernization.<br/><br/>Unofficial effect: the new reactor's baseline radiation signature ran hot enough to mask whatever the old lab underneath it was still leaking.",
@@ -382,6 +573,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-hum-440',
         code: 'HUM-440',
+        legacy: true,
         title: 'Research Draft: Harmonic Excitation of Cobalt-60 Derivatives',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "[ REJECTED RESEARCH DRAFT — AUTHOR REDACTED ]<br/><br/>Proposes that a tri-tone acoustic pressure of 440.01 Hz can displace radioactive decay entirely. Rejected by peer review. Correctly predicted a phenomenon the author called 'glass pitting.'<br/><br/>CRI runs the inverse of this exact frequency, -440.01 Hz, to keep something in this sector paralyzed. What the neighbors call 'the Hum' is the bleed.",
@@ -390,6 +582,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-filter-protocol',
         code: 'FILTER-PROTOCOL',
+        legacy: true,
         title: 'Physics Division Memo: The Frequency of Clarity',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "[ INTERNAL MEMO — AUTHOR REDACTED ]<br/><br/>Subject: The Filter. The average mind resolves temporal overlap as background noise — a trick of the light, deja vu, nothing worth reporting. This resistance is called the Filter.<br/><br/>Recommendation: a mass-scale, voluntary lowering of the Filter through gamified public participation. A mind searching for something is primed to find it — including things that were never meant to be found.",
@@ -398,6 +591,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-sudo-clearance',
         code: 'SUDO-CLEARANCE',
+        legacy: true,
         title: 'CRI Personnel File: Redacted',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "[ ACCESS PARTIALLY GRANTED ]<br/><br/>Most of this file is blacked out. What's left: a title, '[ REDACTED — FORMER LEAD, RESONANCE RESEARCH ]', underlined three times, and a note in different handwriting that just says <em>he's gone. the work isn't.</em>",
@@ -406,6 +600,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-cri-psa-099',
         code: 'CRI-PSA-099',
+        legacy: true,
         title: 'CRI Public Safety Advisory: CRI-PSA-099',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "<strong>CASCADIA RESONANCE INSTITUTE — PUBLIC SAFETY ADVISORY</strong><br/>DOC REF: CRI-PSA-099 // SUBJECT: BIO-ACOUSTIC MONITORING &amp; TEMPORAL STRESS DISCLAIMER<br/><br/><strong>I. BIO-ACOUSTIC MONITORING</strong><br/>CRI hereby notifies all participants that this environment is under continuous Bio-Acoustic Surveillance. The 1956 Resonance Echo interacts directly with human biological systems; CRI monitors &ldquo;Resonant Loads&rdquo; within the crowd to prevent an accidental Temporal Breach. Presence within the activation zone constitutes irrevocable consent to the harvesting of acoustic data, utilized by the LAZARO Core to calibrate atmospheric stabilization protocols.<br/><br/><strong>II. CHRONAL TIME DILATION</strong><br/>Participants may experience localized variations in the passage of time (&ldquo;The 69-Year Slip&rdquo;). Proximity to the Jachin/Boaz artifacts can cause stretched seconds, auditory hallucinations of 1950s-era machinery, and visual pitting of surfaces.<br/><br/><strong>III. COGNITIVE INTERFERENCE</strong><br/>CRI is not liable for memory loss resulting from interaction with this narrative. When an observer perceives a door that exists in two years simultaneously, the brain purges the impossible data — gaps in short-term memory are expected.<br/><br/><strong>IV. MANDATORY REPORTING</strong><br/>Report any physical artifact that does not belong to this era to the Central Archive immediately.<br/><br/><em>GATE FREQUENCY: 1956 / DOORS / CRI. The Cascadia Resonance Institute: Optimizing the Z-Axis for a Better Yesterday.</em>",
@@ -417,6 +612,7 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-document-j',
         code: 'DOCUMENT-J',
+        legacy: true,
         title: 'FBI/CRI Joint Case File: Document J (1971)',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "[ DECLASSIFIED — 1971 ]<br/><br/>Joint case file confirms the man known publicly as D.B. Cooper was not a hijacker. He was a CRI Field Agent executing an authorized temporal displacement jump into 1956.<br/><br/>The parachute functioned as a kinetic decelerator. The $200,000 in ransom bills was never about money — it was exactly 21 pounds of ballast, the precise mass required to stabilize the jump.",
@@ -427,10 +623,188 @@ const STATIC_LORE_NODES = [
     {
         id: 'static-subject-89',
         code: 'SUBJECT-89',
+        legacy: true,
         title: 'Internal Memo: Subject 89',
         lat: BELLTOWN.lat, lng: BELLTOWN.lng,
         text: "[ CRI INTERNAL MEMO — AUTHOR REDACTED ]<br/><br/>Confirms the 'Bigfoot' phenomenon is a species of phase-shifting entity using a high-frequency Masking Hum to stay invisible to the human Filter. Designation: Subject 89. Status, as of this filing: contained.<br/><br/>Status, as of tonight: unconfirmed. CRI has stopped answering questions about it.",
         artistNotes: "They had a name for it before they ever had it in a cage. 'Subject 89.' Like it was already just a number to them.\n\nBob didn't just open a door for it. He gave it back its name."
+    },
+
+    // ==========================================
+    // SUBJECT 89 — Sandbox, 10 Sept 2026 (Capitol Hill Art Walk)
+    // Content pack: bobs-doors/project-files/subject-89-nodes.md
+    // CELL/TAPE/BOB moved to STATIC_MAIN_NODES below (tonight's 3 required
+    // nodes). INTAKE/HUM/RELEASE stay here as optional easter-egg lore.
+    // ==========================================
+    {
+        id: 'static-sub89-intake',
+        code: 'SUB-89-INTAKE',
+        title: 'Intake Record: Subject 89',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ CASCADIA RESONANCE INSTITUTE — INTAKE — CLASSIFICATION: EYES ONLY ]<br/><br/>" +
+              "DESIGNATION: Subject 89<br/>" +
+              "ACQUIRED: 09 NOV 1983, Cascade foothills, ██████ County<br/>" +
+              "METHOD: Acoustic containment. Four generators. Three failed.<br/>" +
+              "TRANSPORT: Overnight, unmarked, sub-level access via the Capitol Hill site<br/>" +
+              "SITE NOTE: The building above is a functioning public services office. Foot traffic is " +
+              "considered an asset. Nobody counts people going into a place everybody already has to go.<br/><br/>" +
+              "PHYSICAL: Approx. 7'4\". Mass inconsistent between readings taken four minutes apart.<br/>" +
+              "BEHAVIOUR: Compliant. Did not resist acquisition. Did not resist transport.<br/><br/>" +
+              "ATTENDING NOTE — DR. ██████:<br/>" +
+              "<i>He walked in. I want that in the record. Four generators and a transport team and he " +
+              "walked in on his own feet and sat down in the chamber before we asked him to.<br/><br/>" +
+              "He is not contained. He is waiting. I do not know what for and I have stopped putting " +
+              "that question in writing.</i>",
+        artistNotes: "Nine years he was loose after '56 and they never got near him. Then in '83 he just " +
+                     "lets them take him.\n\nYou don't sit down in the cell unless the cell is where you " +
+                     "need to be."
+    },
+    {
+        id: 'static-sub89-hum',
+        code: 'SUB-89-HUM',
+        title: 'On the Negative Tri-Tone',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ CRI RESEARCH DIGEST — SUB-LEVEL 4 — 1984–1987 ]<br/><br/>" +
+              "The locals say he vanishes. Reassigns. Turns into something else entirely. All three are " +
+              "true, and none of them are the same trick.<br/><br/>" +
+              "Subject 89 does not hide. He shifts what he is, arrives somewhere he wasn't, and by every " +
+              "account that's ever survived contact with him, has done both across periods of time that " +
+              "shouldn't touch. The file that finally made sense of him didn't come from a biologist. It " +
+              "came from two stones.<br/><br/>" +
+              "Every door in this city carries the same natural resonance — a tri-tone, 440.01 Hz. The " +
+              "Institute spent thirty years assuming that was noise. It is not noise. It is the exact " +
+              "frequency Subject 89 uses to leave, and to change what he looks like doing it.<br/><br/>" +
+              "<b>Jachin</b> mapped the spatial half of that tri-tone. <b>Boaz</b> mapped the chronal half. " +
+              "Combined, they gave the Institute something nobody asked them for: the tri-tone, inverted — " +
+              "<b>-440.01 Hz</b>, all three components at once, not one note cancelled but the whole chord.<br/><br/>" +
+              "Run continuously, it does two things. It stops him leaving. It stops him becoming anything " +
+              "other than exactly what's standing in the room. Neither effect has a name in the literature. " +
+              "Both effects work.<br/><br/>" +
+              "The recommendation attached to the first working field test was one word: <b>DON'T.</b> " +
+              "Something that can rewrite its own shape and its own arrival time is not a specimen. It is " +
+              "load-bearing. Whatever Subject 89 actually is, it may be the reason this stretch of coastline " +
+              "has stayed one timeline instead of several.<br/><br/>" +
+              "The recommendation was overruled.",
+        artistNotes: "Two rocks and thirty years of calling a door hum static. That's the whole org's " +
+                     "research budget in one sentence.\n\nEverything they know how to do, they learned by " +
+                     "taking apart something that was holding the rest of us up."
+    },
+    {
+        id: 'static-sub89-release',
+        code: 'SUB-89-RELEASE',
+        title: 'Release Order 89-R (Disputed)',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ CRI ADMINISTRATIVE RECORD — FILED 25 MAR 1987 ]<br/><br/>" +
+              "<i>Subject 89 released to Sector 4 for stabilization duty. Containment concluded per " +
+              "protocol. All personnel accounted for. No incident.</i><br/><br/>" +
+              "SIGNED: Dr. ██████<br/>" +
+              "FILED: 25 MAR 1987<br/>" +
+              "EVENT DATE ON FORM: 14 MAR 1987<br/><br/>" +
+              "————<br/><br/>" +
+              "Eleven days.<br/><br/>" +
+              "It takes eleven days to write four sentences when the four sentences are not true. " +
+              "The Institute did not release Subject 89. The Institute lost him, to one unbadged man " +
+              "and a door, and then spent a week and a half deciding what to call it.<br/><br/>" +
+              "This document is the oldest lie in the file. Everything after it is built on top.",
+        artistNotes: "This is the one that made me start pulling the whole thing apart.\n\n" +
+                     "They didn't cover it up because it was dangerous. They covered it up because it " +
+                     "was embarrassing."
+    },
+
+    // ==========================================
+    // EASTER EGG — ISO-RED-666. A friend-of-the-show door, not part of the
+    // required 3 or the Subject 89 lore set. `legacy: true` reused again
+    // purely for its "hide the Case Board slot until found" behavior --
+    // this is meant to be a pure surprise for whoever scans that door,
+    // never advertised or hinted at.
+    // ==========================================
+    {
+        id: 'static-iso-red-666',
+        code: 'ISO-RED-666',
+        legacy: true,
+        title: 'Asset Log: ISO-RED-666 (Unscheduled)',
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ CRI ASSET LOG — UNSCHEDULED ENTRY ]<br/><br/>" +
+              "This door was not on the manifest. Nobody on staff installed it, requisitioned it, or " +
+              "approved it. It appeared between two scheduled inspections with a fresh coat of paint and " +
+              "a symbol Legal has asked us not to reproduce in this filing.<br/><br/>" +
+              "SUBJECT: ██████████ ██████████. Not an artist of record. Not CRI personnel. Field notes " +
+              "describe him only as playing in \"several extremely loud bands.\"<br/><br/>" +
+              "INCIDENT LOG: Three staff members reported a smell like ██████. One reported hearing " +
+              "██████████████████ at 3:00 AM with no identifiable source. Building maintenance found " +
+              "nothing. Building maintenance did not go back down there a second time.<br/><br/>" +
+              "RECOMMENDATION: Leave it exactly where it is. Do not relocate. Do not attempt to paint " +
+              "over the ██████. Whatever is on the other side of 666 seems, for now, content to stay " +
+              "there.",
+        artistNotes: "Nobody asked this guy to paint a door. He just kind of... did. Showed up with his " +
+                     "own paint, wouldn't say what the symbol meant, left before anyone could ask twice.\n\n" +
+                     "He's in like four metal bands. I'm not saying that's related.\n\n" +
+                     "I'm also not NOT saying that."
+    },
+
+    // ==========================================
+    // HACKER-EXCLUSIVE CAPSTONE — never printed on any sticker, never
+    // scanned. Auto-granted directly into unlockedNodes on completion, but
+    // only for HACKER-faction players (see triggerNodeUnlock). `legacy:
+    // true` is reused here purely for its display effect (Case Board hides
+    // it until it's actually in unlockedNodes) -- it has nothing to do with
+    // last month's show.
+    // ==========================================
+    {
+        id: 'static-sub89-vanish',
+        code: 'SUB-89-GONE',
+        legacy: true,
+        title: "C@T@LY$T's Own File: Where He Actually Went",
+        lat: VENUE.lat, lng: VENUE.lng,
+        text: "[ UNOFFICIAL — NOT A CRI DOCUMENT — COMPILED BY C@T@LY$T ]<br/><br/>" +
+              "He didn't rescue Bob. He used him.<br/><br/>" +
+              "Cross-referencing the chamber's dead containment log against the tape: the field dropped " +
+              "for under a second at 02:13:14 — long enough for a jump, not long enough for anyone " +
+              "watching to call it anything but a glitch. Subject 89 didn't walk out. He and Bob went " +
+              "together. Same jump, same instant.<br/><br/>" +
+              "Then Subject 89 kept going. Bob didn't. Whatever puts Subject 89 back down somewhere, it " +
+              "wasn't the same stop Bob got left at.<br/><br/>" +
+              "He isn't hiding from anything. He's <i>going</i> somewhere — on a clock that doesn't wait " +
+              "for the person he borrowed to get there.",
+        artistNotes: "This one's mine. CRI doesn't have this file and never will.\n\n" +
+                     "Bob was a door, not a destination. Whatever that thing is actually doing, it's been " +
+                     "doing it since long before any of us were people it could borrow."
+    },
+
+    // ==========================================
+    // LEGACY / RED HERRING — last month's Failed Flight Plan + Belltown Blast
+    // main-sequence nodes (formerly STATIC_MAIN_NODES). Demoted to easter-egg
+    // lore for tonight: still fully scannable if a player finds a surviving
+    // old sticker in the venue, but no longer required and never advertised
+    // in tonight's instructions. Don't announce these — let people who
+    // stumble onto them think they found something they weren't meant to.
+    // ==========================================
+    {
+        id: 'static-dshs-1980',
+        code: 'DSHS-1980',
+        legacy: true,
+        title: 'Field Note: The DSHS Facade',
+        lat: DSHS.lat, lng: DSHS.lng,
+        text: "[ CRI FIELD NOTE — 2ND AVE TRANSIT NODE ]<br/><br/>This office was never fully DSHS. The state letterhead was a facade CRI kept running for decades to explain unmarked vans, late-night deliveries, and a door nobody on staff had keys to.<br/><br/>Internally this was a Resonance Research Annex — an old lab, active long after 1956, quietly kept off every public record.",
+        artistNotes: "A government office that never processed a single case file. That's not bureaucracy, that's a lid on something.\n\nWhatever CRI was doing down in that basement, they needed a very boring building on top of it."
+    },
+    {
+        id: 'static-boaz-smash',
+        code: 'BOAZ-SMASH',
+        legacy: true,
+        title: 'CRI Surveillance File: Subject Redacted',
+        lat: SHORTYS.lat, lng: SHORTYS.lng,
+        text: "[ CRI SURVEILLANCE FILE — FACE REDACTED PER PROTOCOL 12 ]<br/><br/>Standard procedure: any image of an unauthorized temporal subject gets the face stripped before filing. This one didn't stay stripped. Someone repainted around the redaction — left the jacket, the build, the posture. Enough to know him, if you already do.<br/><br/>CRI's own paperwork won't say the name. Somewhere in this city, somebody still will.",
+        artistNotes: "They blacked out his face and called it handled. It isn't. Every other file in this city dances around the same blank space — follow enough of them and the shape underneath starts to matter more than the face ever would."
+    },
+    {
+        id: 'static-tag-signal',
+        code: 'TAG-SIGNAL',
+        legacy: true,
+        title: 'Field Note: The Ballast Count',
+        lat: JUPITER_BAR.lat, lng: JUPITER_BAR.lng,
+        text: "[ CRI FIELD NOTE — 2ND AVE RECOVERY ]<br/><br/>$200,000 in ransom bills, never spent, barely even wanted. What mattered was the weight: 21 pounds exactly, strapped tight to a body mid-fall.<br/><br/>Ballast isn't a metaphor here. It's the only reason a jump like that holds together long enough to land anywhere at all.",
+        artistNotes: "Everyone still calls this a robbery. It was a weights-and-measures problem. Twenty-one pounds, no more, no less — that's not a ransom note, that's an engineering spec."
     }
 ];
 
@@ -453,7 +827,9 @@ const BOARD_CONNECTIONS = [
     ['static-boaz-smash', 'static-tag-signal'],
     ['static-tag-signal', 'static-cri-psa-099'],
     ['static-tag-signal', 'TA-01'],
-    ['TA-01', 'TA-02']
+    ['TA-01', 'TA-02'],
+    ['static-subject-89', 'static-sub89-cell'],
+    ['static-sub89-tape', 'static-sub89-vanish']
 ];
 
 // ==========================================
@@ -465,31 +841,73 @@ const BOARD_CONNECTIONS = [
 // ==========================================
 const STATIC_MAIN_NODES = {
     GUARDIAN: {
-        id: 'static-dshs-1980',
-        code: 'DSHS-1980',
-        title: 'Field Note: The DSHS Facade',
-        lat: DSHS.lat, lng: DSHS.lng,
-        desc: "2106 2nd Ave. The office is closed and locked — don't try the door. Look through the front window. A government facade is hiding something CRI doesn't want found.",
-        text: "[ CRI FIELD NOTE — 2ND AVE TRANSIT NODE ]<br/><br/>This office was never fully DSHS. The state letterhead was a facade CRI kept running for decades to explain unmarked vans, late-night deliveries, and a door nobody on staff had keys to.<br/><br/>Internally this was a Resonance Research Annex — an old lab, active long after 1956, quietly kept off every public record.",
-        artistNotes: "A government office that never processed a single case file. That's not bureaucracy, that's a lid on something.\n\nWhatever CRI was doing down in that basement, they needed a very boring building on top of it."
+        id: 'static-sub89-cell',
+        code: 'SUB-89-CELL',
+        title: 'Containment Chamber 4-C',
+        lat: VENUE.lat, lng: VENUE.lng,
+        desc: "Inside the room. Stand in the middle of it and read what these walls were built to do.",
+        text: "[ CRI FACILITY SCHEMATIC — SUB-LEVEL 4 — CAPITOL HILL SITE ]<br/><br/>" +
+              "You are standing in it.<br/><br/>" +
+              "Chamber 4-C was built in 1983 and decommissioned in 1987. Interior surfaces were poured " +
+              "in a single continuous pass with no seams, no fixtures and no right angles at floor level " +
+              "— the Institute's first guess, and wrong. Doors carry their own resonant frequency. That " +
+              "was never the problem. The problem was finding its inverse.<br/><br/>" +
+              "Walls were held at a continuous <b>-440.01 Hz</b> for four years — the negative of the " +
+              "frequency itself, tuned to cancel it rather than contain it. Staff rotated out at six weeks. " +
+              "Longer postings produced nosebleeds, lost time, and what the medical files call " +
+              "'persistent conviction of being observed through the wall.'<br/><br/>" +
+              "The room you are standing in is a reconstruction. It is made of doors, which is either a " +
+              "joke or the point.",
+        artistNotes: "We built it from memory and one schematic. The proportions are right.\n\n" +
+                     "Stand in the middle and stop talking for a second. That's the part they couldn't " +
+                     "design out."
     },
     DETECTIVE: {
-        id: 'static-boaz-smash',
-        code: 'BOAZ-SMASH',
-        title: 'CRI Surveillance File: Subject Redacted',
-        lat: SHORTYS.lat, lng: SHORTYS.lng,
-        desc: "Shorty's Coney Island, 2316 2nd Ave. Find the portrait CRI didn't want painted. His face is gone — they couldn't redact everything.",
-        text: "[ CRI SURVEILLANCE FILE — FACE REDACTED PER PROTOCOL 12 ]<br/><br/>Standard procedure: any image of an unauthorized temporal subject gets the face stripped before filing. This one didn't stay stripped. Someone repainted around the redaction — left the jacket, the build, the posture. Enough to know him, if you already do.<br/><br/>CRI's own paperwork won't say the name. Somewhere in this city, somebody still will.",
-        artistNotes: "They blacked out his face and called it handled. It isn't. Every other file in this city dances around the same blank space — follow enough of them and the shape underneath starts to matter more than the face ever would."
+        id: 'static-sub89-tape',
+        code: 'SUB-89-TAPE',
+        title: 'CCTV 4C-02 — 14 MAR 1987 — 02:11:44',
+        lat: VENUE.lat, lng: VENUE.lng,
+        desc: "By the screen. Ninety-one seconds of tape nobody on staff wants to admit is real.",
+        text: "[ SURVEILLANCE RECOVERY — CAMERA 4C-02 — SUB-LEVEL 4 ]<br/><br/>" +
+              "Ninety-one seconds. No audio track — the microphone on 4C-02 recorded nothing but the " +
+              "-440.01 Hz containment carrier for four years and was disconnected in 1985. That carrier " +
+              "is the only thing standing between whatever's on the other side of this glass and a wall " +
+              "that stops meaning anything.<br/><br/>" +
+              "<b>02:11:44</b> — A man enters frame from the north corridor. Maintenance coveralls. " +
+              "No visible badge. He is not on the duty roster for that night, that week, or that year.<br/><br/>" +
+              "<b>02:12:19</b> — He stands in front of the chamber. He does not look at the camera. " +
+              "He appears to be listening.<br/><br/>" +
+              "<b>02:12:58</b> — He opens it. The interlock required two keys held simultaneously at " +
+              "opposite ends of the corridor. Both remained in their housings. This has never been explained.<br/><br/>" +
+              "<b>02:13:15</b> — The chamber is empty. It was not empty at 02:13:14.<br/><br/>" +
+              "The man remains in frame for a further twenty seconds. Then he leaves the way he came.",
+        artistNotes: "That's Bob.\n\nI've watched it maybe two hundred times. It's him. The walk is him.\n\n" +
+                     "I showed it to him. He didn't recognise himself. He asked me who it was.\n\n" +
+                     "He wasn't lying. I've known him since we were kids — I know what he looks like " +
+                     "when he's lying. He hasn't done this yet.\n\n" +
+                     "Here's the part I can't put down. That carrier is the only thing keeping Subject 89 " +
+                     "solid enough to see and stupid enough to need a door. He can't walk through a wall " +
+                     "in there. But something in that room clearly still walked out — through Bob instead."
     },
     VIGILANTE: {
-        id: 'static-tag-signal',
-        code: 'TAG-SIGNAL',
-        title: 'Field Note: The Ballast Count',
-        lat: JUPITER_BAR.lat, lng: JUPITER_BAR.lng,
-        desc: "Jupiter Bar, 2126 2nd Ave. Find the money. Not currency — cargo. Somebody weighed it to the ounce.",
-        text: "[ CRI FIELD NOTE — 2ND AVE RECOVERY ]<br/><br/>$200,000 in ransom bills, never spent, barely even wanted. What mattered was the weight: 21 pounds exactly, strapped tight to a body mid-fall.<br/><br/>Ballast isn't a metaphor here. It's the only reason a jump like that holds together long enough to land anywhere at all.",
-        artistNotes: "Everyone still calls this a robbery. It was a weights-and-measures problem. Twenty-one pounds, no more, no less — that's not a ransom note, that's an engineering spec."
+        id: 'static-sub89-bob',
+        code: 'SUB-89-BOB',
+        title: "Bob's Statement",
+        lat: VENUE.lat, lng: VENUE.lng,
+        desc: "Near the door out. His own words, recorded, in his own denial.",
+        text: "[ RECORDED BY N. SAPUTO — TRANSCRIBED ]<br/><br/>" +
+              "<i>I don't know that guy.<br/><br/>" +
+              "I know that's what you want me to say — that it's me, that I did it, that I remember. " +
+              "I've watched it. I've watched it more than you have. It walks like me. It stands like me. " +
+              "The way it holds its hands is how I hold my hands.<br/><br/>" +
+              "In 1987 I was eight and I was in Everett and I have never been in a basement like that " +
+              "in my life.<br/><br/>" +
+              "But here's the thing that's been keeping me up. I know what he's doing in those twenty " +
+              "seconds after. He's not checking the room. He's waiting to make sure the thing in there " +
+              "got out clean.<br/><br/>" +
+              "I know that because it's what I would do.<br/><br/>" +
+              "So either it's not me, or I haven't done it yet.</i>",
+        artistNotes: "He asked me not to put this one up.\n\nI'm putting it up."
     }
 };
 
@@ -547,9 +965,19 @@ export default function App() {
     const [userAlias, setUserAlias] = useState('');
     const [userEmail, setUserEmail] = useState('');
     const [showBonusReveal, setShowBonusReveal] = useState(false);
+    const bonusRevealHandledRef = useRef(false);
+
+    // A returning player has an old show's save but none yet under this
+    // show's key -- purely for the one-time "welcome back" toast below,
+    // never used to carry old progress into this show's requirements.
+    const [isReturningPlayer] = useState(() => {
+        try { return !!localStorage.getItem(OLD_STORAGE_KEY) && !localStorage.getItem(STORAGE_KEY); }
+        catch { return false; }
+    });
+    const returningWelcomeShownRef = useRef(false);
 
     const [gameState, setGameState] = useState(() => {
-        const saved = localStorage.getItem('timeline_protocol_belltown_v1');
+        const saved = localStorage.getItem(STORAGE_KEY);
         return saved ? JSON.parse(saved) : {
             hasSeenTutorial: false,
             hackerIntroDone: false,
@@ -562,26 +990,52 @@ export default function App() {
         };
     });
 
-    const { soundEnabled, toggleSound } = useAmbientResonance(gameState);
+    const { soundEnabled, toggleSound, speakLazaroReveal } = useAmbientResonance(gameState);
 
     const isArtistUnlocked = (artistId) => (gameState.unlockedArtists || []).includes(artistId);
 
-    useEffect(() => localStorage.setItem('timeline_protocol_belltown_v1', JSON.stringify(gameState)), [gameState]);
+    useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState)), [gameState]);
 
     // BONUS REVEAL — a beat after the game completes (any order, either faction),
     // a full-screen stinger fires once and never again. Higher z-index than the
     // hacker end popup so it lands on top of it if that's still open.
+    //
+    // bonusRevealShown is flipped to true immediately here (not in the
+    // dismiss handler) -- it means "this has already played," not "the
+    // player tapped to close it." If it only flipped on dismiss, a player
+    // who completes and then backgrounds/reloads the tab before tapping
+    // (extremely plausible on a phone at a live show) would get the whole
+    // completion stinger AND the ambient audio's resolve chord replayed
+    // from scratch every time they reopen it. Same flag also gates the
+    // audio side -- see useAmbientResonance below.
+    //
+    // bonusRevealHandledRef guards against React StrictMode's dev-only
+    // double-invoke (mount -> cleanup -> mount): without it, the first
+    // invocation's setTimeout gets cancelled by that simulated cleanup,
+    // and the second invocation sees bonusRevealShown already flipped and
+    // skips rescheduling -- net result, the popup silently never fires.
+    // Deliberately no cleanup on the timeout itself: this component never
+    // truly unmounts during real play, and a real unmount firing one no-op
+    // setShowBonusReveal afterwards is harmless.
     useEffect(() => {
-        if (gameState.gameComplete && !gameState.bonusRevealShown) {
-            const t = setTimeout(() => setShowBonusReveal(true), 2800);
-            return () => clearTimeout(t);
+        if (gameState.gameComplete && !gameState.bonusRevealShown && !bonusRevealHandledRef.current) {
+            bonusRevealHandledRef.current = true;
+            setGameState(prev => ({ ...prev, bonusRevealShown: true }));
+            setTimeout(() => setShowBonusReveal(true), 2800);
         }
     }, [gameState.gameComplete, gameState.bonusRevealShown]);
 
-    const dismissBonusReveal = () => {
-        setShowBonusReveal(false);
-        setGameState(prev => ({ ...prev, bonusRevealShown: true }));
-    };
+    const dismissBonusReveal = () => setShowBonusReveal(false);
+
+    // The Dalek-voiced "LAZARO EXISTS" line fires the moment that screen
+    // actually appears (CRI ending only -- HACKER gets "TAG. YOU'RE IT."
+    // instead, which isn't Lazaro's line). Keyed off showBonusReveal itself
+    // rather than duplicated at both its trigger sites (the real 2800ms
+    // delay and the debug harness's instant button).
+    useEffect(() => {
+        if (showBonusReveal && gameState.faction !== 'HACKER') speakLazaroReveal();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showBonusReveal]);
 
     // CINEMATIC BOOT SEQUENCE TIMING
     useEffect(() => {
@@ -591,9 +1045,21 @@ export default function App() {
             const t3 = setTimeout(() => setBootPhase(2), 9500);   // Failed Flight Plan -> Sandbox Menu
             return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
         } else if (hackerColdDropPhase === 0) {
-            setBootPhase(3); 
+            setBootPhase(3);
         }
     }, [gameState.hasSeenTutorial, hackerColdDropPhase]);
+
+    // WELCOME BACK — a returning player (old show's save on this phone, none
+    // yet for this one) gets a one-time friendly toast once Build Profile
+    // appears. Their old progress never carries over into this show's
+    // requirements; this is purely a greeting.
+    useEffect(() => {
+        if (bootPhase === 2 && isReturningPlayer && !returningWelcomeShownRef.current) {
+            returningWelcomeShownRef.current = true;
+            const t = setTimeout(() => showToast("WELCOME BACK, OPERATIVE. NEW ANOMALIES DETECTED.", "success"), 600);
+            return () => clearTimeout(t);
+        }
+    }, [bootPhase, isReturningPlayer]);
 
     useEffect(() => {
         if (!appId) return;
@@ -667,7 +1133,7 @@ export default function App() {
 
     const handleReset = () => {
         if (window.confirm("WARNING: Purge device memory?")) {
-            localStorage.removeItem('timeline_protocol_belltown_v1');
+            localStorage.removeItem(STORAGE_KEY);
             window.location.reload();
         }
     };
@@ -701,7 +1167,7 @@ export default function App() {
         fetch("https://formspree.io/f/xrededjy", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ alias, email, archetype: pathKey, source: 'Belltown Blast — Profile Build' })
+            body: JSON.stringify({ alias, email, archetype: pathKey, source: 'Subject 89 — Profile Build' })
         }).catch(() => {});
 
         setTimeout(() => {
@@ -917,7 +1383,14 @@ export default function App() {
         }
 
         if (isComplete) {
-            if (gameState.faction === 'HACKER') setHackerEndPhase(1);
+            if (gameState.faction === 'HACKER') {
+                setHackerEndPhase(1);
+                // The hacker-exclusive capstone -- no sticker, nothing to scan.
+                // This is the one thing CRI-faction players never get access to.
+                setGameState(prev => prev.unlockedNodes.some(n => n.id === 'static-sub89-vanish')
+                    ? prev
+                    : { ...prev, unlockedNodes: [...prev.unlockedNodes, { id: 'static-sub89-vanish', type: 'MANUAL', lat: VENUE.lat, lng: VENUE.lng }] });
+            }
             return;
         }
 
@@ -936,10 +1409,21 @@ export default function App() {
         if (activeTab !== 'MAP' || !mapRef.current) return;
 
         if (!mapInstance.current) {
-            const center = CLOSED_LOOP_DEMO ? DSHS : SEATTLE_CENTER;
+            const center = CLOSED_LOOP_DEMO ? VENUE : SEATTLE_CENTER;
             const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false }).setView([center.lat, center.lng], CLOSED_LOOP_DEMO ? 17 : 13);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
-
+            // No tile layer at all -- tonight's game is one venue, one point.
+            // CARTO's dark_all basemap (used previously) needs a key CRI never had;
+            // plain OpenStreetMap tiles work with no key but bring real street names
+            // and full navigation detail, which fights "our own info" and doesn't
+            // match the old muted-navy look. There's nothing to navigate to this
+            // time anyway, so skip real map tiles entirely: CRI_GRID_BG (a CSS grid
+            // + radial glow, no network request, no API key, ever) lives on the
+            // *parent* wrapper (see the .leaflet-container-transparent rule in this
+            // component's <style> block) rather than directly on mapRef -- setting
+            // it directly on the Leaflet container gets silently overwritten by
+            // Leaflet's own default background from leaflet.css. Pins/markers still
+            // place normally on top -- Leaflet's positioning math doesn't depend on
+            // tile images existing.
             dynamicLayer.current = L.layerGroup().addTo(map);
             mapInstance.current = map;
         }
@@ -987,7 +1471,7 @@ export default function App() {
         fetch("https://formspree.io/f/xrededjy", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ alias: userAlias, email: userEmail, faction, source: 'Belltown Blast — Faction Report', ...extra })
+            body: JSON.stringify({ alias: userAlias, email: userEmail, faction, source: 'Subject 89 — Faction Report', ...extra })
         }).catch(() => {});
     };
 
@@ -1068,6 +1552,27 @@ export default function App() {
         );
     };
 
+    // SHOW KILL SWITCH — short-circuits the whole game render. Placed after
+    // every hook above so hook order never changes between renders; only
+    // the JSX output branches here.
+    if (!SHOW_LIVE) {
+        return (
+            <div className="h-[100dvh] w-full bg-[#020617] text-white font-sans flex flex-col items-center justify-center p-6 text-center gap-6">
+                <CRILogo className="w-24 h-24 text-white/70" />
+                <div>
+                    <h1 className="text-xl font-black tracking-widest uppercase text-cyan-400">Timeline Protocol</h1>
+                    <p className="mt-3 text-sm text-gray-400 font-mono max-w-sm mx-auto leading-relaxed">
+                        This anomaly has been logged and closed for now. Thanks for playing — follow
+                        @boblovesdoors for the next one.
+                    </p>
+                </div>
+                <a href={STRIPE_LINK} target="_blank" rel="noopener noreferrer" className="px-6 py-3 border-2 border-cyan-500 text-black bg-cyan-400 hover:bg-black hover:text-cyan-400 font-black font-mono text-xs uppercase transition-colors shadow-[0_0_15px_rgba(6,182,212,0.5)] rounded">
+                    Support the Catalyst
+                </a>
+            </div>
+        );
+    }
+
     return (
         <div className="h-[100dvh] w-full bg-[#020617] text-white font-sans overflow-hidden flex flex-col">
             <style>{`
@@ -1145,12 +1650,30 @@ export default function App() {
                 .tap-hint { animation: tapBounce 1.2s ease-in-out infinite; }
                 .vector-line { animation: dash 20s linear infinite; }
                 @keyframes dash { to { stroke-dashoffset: -1000; } }
-                .leaflet-container { background: #020617 !important; font-family: 'Inter', sans-serif; }
+                /* Originally masked gaps between loading tiles with navy instead of
+                   Leaflet's default white/gray -- now that there's no tile layer at
+                   all (see the map-init effect), that same solid fill would just
+                   permanently hide CRI_GRID_BG sitting on the parent behind it, so
+                   it's transparent instead. */
+                .leaflet-container { background: transparent !important; font-family: 'Inter', sans-serif; }
                 
                 .fade-in-seq-1 { animation: fadeIn 1s ease-in forwards; }
                 .fade-in-seq-2 { opacity: 0; animation: fadeIn 1s ease-in 1s forwards; }
                 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
             `}</style>
+
+            {/* TOAST — brief bottom-center confirmation/error strip for showToast().
+                Was previously set into state with no render block anywhere, so
+                every scan confirmation/error in the live game was silently
+                invisible to players. */}
+            {toast && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] px-5 py-3 rounded-lg border font-mono text-xs font-bold uppercase tracking-widest text-center shadow-lg fade-in pointer-events-none"
+                     style={toast.type === 'error'
+                         ? { background: 'rgba(2,6,23,0.95)', borderColor: '#ef4444', color: '#f87171' }
+                         : { background: 'rgba(2,6,23,0.95)', borderColor: '#22d3ee', color: '#67e8f9' }}>
+                    {toast.message}
+                </div>
+            )}
 
             {/* ==========================================
                 CINEMATIC TITLE SEQUENCE
@@ -1183,11 +1706,11 @@ export default function App() {
                     <div className={`absolute inset-0 flex flex-col items-center justify-center px-6 transition-all duration-1000 ${bootPhase === 1.5 ? 'opacity-100' : 'opacity-0'}`}
                          style={{ background: 'radial-gradient(ellipse at center, rgba(2,6,23,0.55) 0%, rgba(2,6,23,0.9) 75%)', backdropFilter: 'blur(2px)' }}>
                         <h1 className="title-card text-yellow-400 text-center">
-                            <span className="block">BELLTOWN</span>
-                            <span className="block">BLAST</span>
+                            <span className="block">SUBJECT</span>
+                            <span className="block">89</span>
                         </h1>
                         <p className="mt-8 text-[10px] md:text-xs font-mono text-yellow-600/80 uppercase tracking-[0.4em] text-center">
-                            Seattle &nbsp;//&nbsp; Sector 2
+                            Capitol Hill &nbsp;//&nbsp; Sandbox
                         </p>
                     </div>
                 </div>
@@ -1224,7 +1747,7 @@ export default function App() {
                 </div>
             )}
 
-            {/* BLAST!/INFO PANEL — instructions, shown once automatically after profile build,
+            {/* SANDBOX!/INFO PANEL — instructions, shown once automatically after profile build,
                 reopenable anytime via the header button. Donate + artist unlocks now live
                 in the Archive (Data Vault) instead of a separate Sandbox screen. */}
             {showSandbox && (
@@ -1233,10 +1756,10 @@ export default function App() {
                         <div className="flex justify-between items-start mb-4 border-b border-cyan-900/40 pb-4 shrink-0">
                             <div>
                                 <h2 className="text-xl font-black text-cyan-400 tracking-widest flex items-center gap-2">
-                                    <Icons.Activity size={18} /> BLAST / HELP
+                                    <Icons.Activity size={18} /> SANDBOX / HELP
                                 </h2>
                                 <p className="text-[10px] font-mono text-cyan-700 mt-1 tracking-widest uppercase">
-                                    SECTOR: BELLTOWN &nbsp;//&nbsp; EVENT: BOB'S DOORS &mdash; BELLTOWN BLAST
+                                    SECTOR: CAPITOL HILL &nbsp;//&nbsp; EVENT: BOB'S DOORS &mdash; SUBJECT 89
                                 </p>
                             </div>
                             <button onClick={() => { setGameState(prev => ({ ...prev, hasSeenTutorial: true })); setShowSandbox(false); }} className="text-cyan-500 hover:text-white transition-colors p-2"><Icons.X /></button>
@@ -1509,7 +2032,7 @@ export default function App() {
 
                                 <div className="border-2 border-[#00ff41] bg-black p-6 rounded-lg shadow-[0_0_35px_rgba(0,255,65,0.5)] text-center">
                                     <p className="text-[#00ff41] font-black text-base leading-snug uppercase" style={{textShadow: '0 0 10px #00ff41, 0 0 22px #00ff41'}}>
-                                        I helped Bob hack the planet at Belltown Blast 2026 and all I got was this lousy screenshot!
+                                        I helped Bob hack the planet at Subject 89 2026 and all I got was this lousy screenshot!
                                     </p>
                                     <div className="text-7xl my-4 select-none" style={{ filter: 'drop-shadow(0 0 12px #00ff41)' }}>🐈‍⬛</div>
                                     <p className="text-[#00ff41] text-[10px] font-mono uppercase tracking-[0.3em]">Timeline Protocol</p>
@@ -1566,7 +2089,7 @@ export default function App() {
                         {soundEnabled ? <Icons.Volume2 size={14} /> : <Icons.VolumeX size={14} />}
                     </button>
                     <button onClick={() => setShowSandbox(true)} className="text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-cyan-400 transition-colors border border-gray-800 px-3 py-1.5 rounded">
-                        [ BLAST / HELP ]
+                        [ SANDBOX / HELP ]
                     </button>
                 </div>
             </header>
@@ -1593,8 +2116,8 @@ export default function App() {
                 </div>
 
                 <div className={`absolute inset-0 transition-opacity duration-300 flex flex-col ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                    <div className="flex-1 min-h-[30vh] relative w-full border-b border-cyan-900/30">
-                        <div ref={mapRef} className="w-full h-full absolute inset-0 z-10"></div>
+                    <div className="flex-1 min-h-[30vh] relative w-full border-b border-cyan-900/30" style={{ background: CRI_GRID_BG }}>
+                        <div ref={mapRef} className={`w-full h-full absolute inset-0 z-10 ${activeTab === 'MAP' ? '' : 'pointer-events-none'}`}></div>
                     </div>
 
                     <div className="p-4 md:p-6 bg-[#020617] shrink-0 max-h-[45vh] overflow-y-auto custom-scrollbar z-[500] shadow-[0_-10px_30px_rgba(0,0,0,0.8)] relative">
@@ -1639,13 +2162,13 @@ export default function App() {
                             {gameState.gameComplete && (
                                 <div className="fade-in text-center">
                                     <p className="font-mono text-cyan-400 text-sm mb-4" style={{textShadow: '0 0 8px rgba(34,211,238,0.6)'}}>
-                                        YOU SECURED SECTOR 02. Great job, operative {userAlias || 'operative'}. You successfully logged the known anomalies — we can now retrieve the doors for further study.<br/><br/>
+                                        SITE LOGGED. Great job, operative {userAlias || 'operative'}. You successfully logged the known anomalies — we can now mark this site as secured.<br/><br/>
                                         Add us on Instagram <span className="font-bold">@cascadiaresonanceinstitute</span> and upload a screenshot and photo of your mission.
                                     </p>
                                     <div className="border-2 border-cyan-400 bg-[#020617] p-6 rounded-lg shadow-[0_0_35px_rgba(34,211,238,0.5)] max-w-sm mx-auto">
                                         <div className="text-6xl mb-3 select-none" style={{ filter: 'drop-shadow(0 0 12px #22d3ee)' }}>🛡️</div>
                                         <p className="text-cyan-300 font-black text-2xl tracking-widest" style={{textShadow: '0 0 10px #22d3ee'}}>CRI-{(userAlias || 'OPERATIVE').toUpperCase()}</p>
-                                        <p className="text-white font-bold text-lg mt-1">BELLTOWN SECURED 2026</p>
+                                        <p className="text-white font-bold text-lg mt-1">CAPITOL HILL SECURED 2026</p>
                                         <p className="text-cyan-400 text-[10px] font-mono uppercase tracking-[0.3em] mt-3">Timeline Protocol</p>
                                     </div>
                                     <a href={STRIPE_LINK} target="_blank" rel="noopener noreferrer" className="inline-block mt-4 px-6 py-2 border border-cyan-500 text-cyan-400 hover:bg-cyan-500 hover:text-black font-bold font-mono text-[10px] uppercase tracking-widest transition-colors rounded">
@@ -1675,7 +2198,17 @@ export default function App() {
                                     ))}
                                 </svg>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-5 relative" style={{ zIndex: 2 }}>
-                                    {[...getAllItems(), ...TEMPORAL_ARTISTS].map(item => {
+                                    {[...getAllItems(), ...TEMPORAL_ARTISTS]
+                                        // Legacy (last show's) items never get a "? CLASSIFIED" placeholder --
+                                        // this board should only advertise tonight's own loop. A legacy item
+                                        // still fully works if scanned (old stickers, easter egg for whoever
+                                        // finds one), it just doesn't show up here as something to look for
+                                        // until it's actually been found.
+                                        .filter(item => {
+                                            if (!item.legacy) return true;
+                                            return gameState.unlockedNodes.some(n => n.id === item.id);
+                                        })
+                                        .map(item => {
                                         const isArtist = !!item.scanCode;
                                         const unlocked = isArtist ? isArtistUnlocked(item.id) : gameState.unlockedNodes.some(n => n.id === item.id);
                                         const tilt = (item.id.charCodeAt(item.id.length - 1) % 5) - 2;
